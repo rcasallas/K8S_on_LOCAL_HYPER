@@ -7,6 +7,8 @@ OVA/*.ova
 dynamic/*
 *.pub
 *key*
+scripts/K8S/*
 scripts/IAAS/myKey
 scripts/IAAS/MyPersonalKey
-scripts/IAAS/ERRORS_VM.txt
+*.exc
+
