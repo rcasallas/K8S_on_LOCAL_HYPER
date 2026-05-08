@@ -1,0 +1,25 @@
+
+# LB NODES
+HOSTNAME_LB := "k8s_lb_haproxy-01 k8s_lb_haproxy-02" # hostname for each load balancer node separated by spaces
+LB_IP := "192.168.56.101 192.168.56.102" # ip addresses for each load balancer node separated by spaces (eact ip must be in the same subnet than the gateway)
+MASK_LB := "24" # mask for each load balancer node
+GATEWAY_LB := "192.168.56.1" # gateway for each load balancer node
+DNS_LB := "127.0.0.1" # must be the localhost IP, due to the load balancer will use the localhost IP to resolve the domain names (dnsproxy)
+PREFIX_LB := "k8s.local" # prefix for the k8s solution
+
+#setting the IP and Port for the HTTP server to serve the ignition file
+HTTP_PORT_IGNITION := "8443" # port for the HTTP server
+HTTP_IP_IGNITION := "192.168.56.1" # ip address of the HTTP server
+HTTP_PROTO_IGNITION := "https" # protocol for the HTTP server
+HTTP_PROTO_CA := "http" # protocol for the HTTP server
+HTTP_PORT_CA := "8080" # port for the HTTP server
+
+#HAPROXY SETTING
+#DNS_RELAY
+DNS_RELAY := "8.8.8.8 4.4.4.4" # dns relay SERVER for the load balancer
+
+#KEEPALIVED PARAMETERS
+LB_VIP_IP := "192.168.56.100" # Floating Virtual IP for the load balancer used by the API SERVERS and DNS servers.
+KEEPALIVED_PRIORITIES := "10 20" # priority for each load balancer node (the higher the number, the higher the priority) separated by spaces
+KEEPALIVED_NIC := "enp0s8" # network interface for each load balancer node
+KEEPALIVED_PASS := "passphrase" # password for keepalived (password used by the VRRP protocol)

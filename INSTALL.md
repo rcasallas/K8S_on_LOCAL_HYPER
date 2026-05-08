@@ -10,9 +10,11 @@ Download the virtualbox OVA File.
 curl -LO $(curl -s https://builds.coreos.fedoraproject.org/streams/stable.json | jq -r '.architectures.x86_64.artifacts.virtualbox.formats.ova.disk.location')
 curl -LO $(curl -s https://builds.coreos.fedoraproject.org/streams/stable.json | jq -r '.architectures.x86_64.artifacts.vmware.formats.ova.disk.location')
 
+wget https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.ova
+
 or
 
-python3 getOVA.py
+python3 getOVA_FCOS.py
 
 # 3. Convert butane File to Ignition File.
 this convert the butane file to ignition File.

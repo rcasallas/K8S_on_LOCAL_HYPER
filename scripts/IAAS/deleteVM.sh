@@ -16,6 +16,7 @@ if [[ "$VMNAME1" == "$NAMEVM" ]]; then
     echo "La VM '$NAMEVM' está actualmente en ejecución."
     # 3. Intentar apagado controlado
     VBoxManage controlvm "$NAMEVM" poweroff 2>> "$LOG_FILE"
+    sleep 3 # Esperar a que VirtualBox libere el bloqueo de la VM
     if [[ $? -ne 0 ]]; then
         echo "Error crítico: No fue posible apagar la VM utilizando VBoxManage. Revisa los logs $LOG_FILE -> SHUTINGDOWN_VM"
         
@@ -44,6 +45,10 @@ elif [[ "$VMNAME2" == "$NAMEVM" ]]; then
 else
     echo "La VM '$NAMEVM' no se encontró."
 fi
+
+# Limpiar disco y VMs inaccesibles si quedaron colgadas de errores anteriores
+for vm in $(VBoxManage list vms | grep '<inaccessible>' | awk '{print $2}' | tr -d '{}'); do VBoxManage unregistervm "$vm" 2>/dev/null; done
+for hdd in $(VBoxManage list hdds | grep -B2 'inaccessible' | grep '^UUID:' | awk '{print $2}'); do VBoxManage closemedium disk "$hdd" --delete 2>/dev/null; done
 
 rm -Rf "/home/rcasallas/VirtualBox VMs/$NAMEVM"
 echo "archivos asociados a la VM '$NAMEVM' eliminada correctamente."

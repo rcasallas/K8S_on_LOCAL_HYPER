@@ -4,3 +4,17 @@ ignition:
   config:
     replace:
       source: ${PROTO_HTTP_IGNITION}://${IP_ADDRESS_HTTP_IGNITION}:${PORT_HTTP_IGNITION}/${CONFIG_IGNITION_FILENAME}
+      http_headers:
+        - name: Authorization
+          value: ${AUTHORIZATION_TOKEN}
+  security:
+    tls:
+      certificate_authorities:
+        - source: ${HTTP_PROTO_CA}://${IP_ADDRESS_HTTP_IGNITION}:${HTTP_PORT_CA}/ca.crt
+          verification:
+            hash: ${CA_CERT_HASH}
+storage:
+  links:
+    - path: /etc/localtime
+      target: ../usr/share/zoneinfo/America/Bogota
+      overwrite: true

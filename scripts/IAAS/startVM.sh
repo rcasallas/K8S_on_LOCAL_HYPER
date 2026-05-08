@@ -4,7 +4,7 @@
 #devops engineer: Richard Casallas
 
 usage() {
-    echo "startVM.sh --nameVM k8s-master-01 --role=master --prefixButaneIgnitionName preconfig --IPAdressVM 192.168.56.50 --maskVM 24 --gatewayVM 192.168.56.1 --dnsVM 8.8.8.8  --IPAddressHttpIgnition 192.168.56.1 --httpPortIgnition 8001"
+    echo "startLB.sh --nameVM k8s-master-01 --role=master --prefixButaneIgnitionName preconfig --IPAdressVM 192.168.56.50 --maskVM 24 --gatewayVM 192.168.56.1 --dnsVM 8.8.8.8  --IPAddressHttpIgnition 192.168.56.1 --httpPortIgnition 8001 --OVAFILE fedora-coreos-43.20260316.3.1-virtualbox.x86_64.ova --k8s_version 1.33"
     echo "Usage: startVM.sh [options]"
     echo ""
     echo "Options:"
@@ -18,11 +18,17 @@ usage() {
     echo "  -P, --httpProtocolIgnition     Protocol used by Ignition Server configuration." 
     echo "  -a, --IPAddressHttpIgnition    HTTP Server IP"
     echo "  -t, --httpPortIgnition         HTTP Port (Default: 80)"
+    echo "   --httpProtocolCA           Protocol used by CA Server configuration." 
+    echo "   --httpPortCA             Port used by CA Server configuration." 
     echo "  -o, --OVAFILE                  Path to the OVA file (Default: fedora-coreos-43.20260316.3.1-virtualbox.x86_64.ova)"
     echo "  -k, --k8s_version              K8s version to install."
+    echo "  -E, --endpointIP               Endpoint IP (LB)"
+    echo "  -M, --prefixMaster             Prefix Master (Domain)"
     echo "  -h, --help                     Show this help"
     echo ""
 }
+
+
 
 
 function ayuda(){
@@ -40,6 +46,8 @@ function pause(){
 
 
 function CreateMaster(){
+ 
+
     # 1. Definición de variables
     nameVM=$1
     #echo "nameVM: $nameVM"
@@ -54,6 +62,8 @@ function CreateMaster(){
     gatewayVM=$6
     #echo "gatewayVM: $gatewayVM"
     dnsVM=$7
+
+    #"$HTTP_PROTO" "$IP_HTTP" "$HTTP_PORT" "$OVA_FILE" "$K8S_VERSION" "$ENDPOINT_IP" "$PREFIX_MASTER" "$AUTHORIZATION_USER" "$AUTHORIZATION_PASSWORD" ;;
     #echo "dnsVM: $dnsVM"
     httpProtocolIgnition=$8
     #echo "httpProtocolIgnition: $httpProtocolIgnition"
@@ -64,11 +74,29 @@ function CreateMaster(){
     httpPortIgnition=${10}
     #echo "httpPortIgnition: $httpPortIgnition"
     
-    OVA_FILE=${11}
+    httpProtocolCA=${11}
+    #echo "httpProtocolCA: $httpProtocolCA"
+    
+    httpPortCA=${12}
+    #echo "httpPortCA: $httpPortCA"
+
+    OVA_FILE=${13}
     #echo "OVA_FILE: $OVA_FILE"
     
-    K8S_VERSION=${12}
+    K8S_VERSION=${14}
     #echo "K8S_VERSION: $K8S_VERSION"
+
+    ENDPOINT_IP=${15}
+    #echo "ENDPOINT_IP: $ENDPOINT_IP"
+
+    PREFIX_MASTER=${16}
+    #echo "PREFIX_MASTER: $PREFIX_MASTER"
+
+    AUTHORIZATION_USER=${17}
+    #echo "AUTHORIZATION_USER: $AUTHORIZATION_USER"
+    
+    AUTHORIZATION_PASSWORD=${18}
+    #echo "AUTHORIZATION_PASSWORD: $AUTHORIZATION_PASSWORD"
     
     # get the home directory of the user running the script
     homeDir=$(getent passwd $USER | cut -d: -f6)
@@ -147,6 +175,13 @@ function CreateMaster(){
 
         
     fi
+     # === 2.5 CONFIGURE SERIAL CONSOLE LOGGING ===
+    echo "Configurando logging de consola serial..."
+    mkdir -p LOGS
+    VM_LOG_FILE="$(pwd)/LOGS/${nameVM}_console.log"
+    VBoxManage modifyvm "$nameVM" --uart1 0x3F8 4 2>> "$ERROR_FILE"
+    VBoxManage modifyvm "$nameVM" --uartmode1 file "$VM_LOG_FILE" 2>> "$ERROR_FILE"
+
 
     #setting the root paths
     provisioningPath=$(realpath ../../provisioning)
@@ -166,6 +201,13 @@ function CreateMaster(){
     export PORT_HTTP_IGNITION=$httpPortIgnition
     export PROTO_HTTP_IGNITION=$httpProtocolIgnition
     export CONFIG_IGNITION_FILENAME="$CONFIG_IGNITION_FILENAME"
+    export AUTHORIZATION_TOKEN="Basic $(echo -n "${AUTHORIZATION_USER}:${AUTHORIZATION_PASSWORD}" | base64 -w 0)"
+    export HTTP_PROTO_CA=$httpProtocolCA
+    export HTTP_PORT_CA=$httpPortCA
+    
+    # NUEVO: Leer CA y calcular su hash para el archivo YAML
+    export CA_CERT_HASH="sha512-$(sha512sum /home/rcasallas/Documents/devops/webserverConfig/mtls_portal/certs/ca.crt | awk '{print $1}')"
+
     # create the INIT Butane File
     envsubst < "$provisioningPath/InitVM.bu.template" > "$INIT_BUTANE_FILE_FULL"
     
@@ -178,6 +220,26 @@ function CreateMaster(){
     else
         echo "Archivo de Ignition creado correctamente"
     fi 
+
+    # upload INIT FILES to mtls_portal_app server
+    echo "Uploading INIT Ignition file to mtls_portal_app server..."
+    echo "Authorization User: ${AUTHORIZATION_USER}"
+    echo "Authorization Password: ${AUTHORIZATION_PASSWORD}"
+    echo "HTTP IP Ignition: ${IPAddressHttpIgnition}"
+    echo "HTTP Port Ignition: ${httpPortIgnition}"
+    echo "HTTP Protocol Ignition: ${httpProtocolIgnition}"
+    echo "CONFIG_IGNITION_FILENAME: ${CONFIG_IGNITION_FILENAME}"
+    echo "AUTHORIZATION_TOKEN: ${AUTHORIZATION_TOKEN}"
+    HTTP_STATUS=$(curl --silent --show-error --write-out "%{http_code}" --max-time 10 -k -u "${AUTHORIZATION_USER}:${AUTHORIZATION_PASSWORD}" -X PUT "https://${IPAddressHttpIgnition}:${httpPortIgnition}/api/ignition/config/${INIT_IGNITION_FILENAME}" -H "Content-Type: application/json" -d @"$INIT_IGNITION_FILE_FULL" -o /tmp/upload_ignition_response_${nameVM}.txt)
+    if [[ "$HTTP_STATUS" -lt 200 || "$HTTP_STATUS" -ge 300 ]]; then
+        echo "Error crítico: Falló la subida del archivo INIT Ignition. Código HTTP: $HTTP_STATUS"
+        echo "Respuesta del servidor:"
+        cat /tmp/upload_ignition_response_${nameVM}.txt
+        rm -f /tmp/upload_ignition_response_${nameVM}.txt
+        exit 1
+    fi
+    echo "Archivo INIT Ignition subido correctamente al servidor. (HTTP $HTTP_STATUS)"
+    rm -f /tmp/upload_ignition_response_${nameVM}.txt
     
     #################################################################
     # create the CONFIG Butane FIle:
@@ -189,6 +251,9 @@ function CreateMaster(){
     export MASK_VM="$maskVM"
     export GATEWAY_VM="$gatewayVM"
     export DNS_VM="$dnsVM"
+    
+    export ENDPOINT_IP="$ENDPOINT_IP"
+    export PREFIX_MASTER="$PREFIX_MASTER"
     
     export INIT_IGNITION_FILE_FULL="$INIT_IGNITION_FILE_FULL"
 
@@ -206,6 +271,18 @@ function CreateMaster(){
     else
         echo "Archivo de Ignition creado correctamente"
     fi 
+
+    echo "Uploading CONFIG Ignition file to mtls_portal_app server..."
+    HTTP_STATUS_CONFIG=$(curl --silent --show-error --write-out "%{http_code}" --max-time 10 -k -u "${AUTHORIZATION_USER}:${AUTHORIZATION_PASSWORD}" -X PUT "https://${IPAddressHttpIgnition}:${httpPortIgnition}/api/ignition/config/${CONFIG_IGNITION_FILENAME}" -H "Content-Type: application/json" -d @"$CONFIG_IGNITION_FILE_FULL" -o /tmp/upload_config_ignition_response_${nameVM}.txt)
+    if [[ "$HTTP_STATUS_CONFIG" -lt 200 || "$HTTP_STATUS_CONFIG" -ge 300 ]]; then
+        echo "Error crítico: Falló la subida del archivo CONFIG Ignition. Código HTTP: $HTTP_STATUS_CONFIG"
+        echo "Respuesta del servidor:"
+        cat /tmp/upload_config_ignition_response_${nameVM}.txt
+        rm -f /tmp/upload_config_ignition_response_${nameVM}.txt
+        exit 1
+    fi
+    echo "Archivo CONFIG Ignition subido correctamente al servidor. (HTTP $HTTP_STATUS_CONFIG)"
+    rm -f /tmp/upload_config_ignition_response_${nameVM}.txt
 
     # setting Enviroment
 
@@ -230,20 +307,32 @@ function CreateMaster(){
 
     # 4. Configure storage
     echo "Configuring storage..."
-    if ! VBoxManage storagectl "$nameVM" --name "NVMe_Controller" --add pcie --controller NVMe 2>> "$ERROR_FILE"; then
+    if ! VBoxManage storagectl "$nameVM" --name "NVMe_Controller" --add pcie --controller NVMe 2>>"$ERROR_FILE"; then
         echo "Error crítico: Revisa los logs $ERROR_FILE -> ADDING_STORAGE_CONTROLLER"
         exit 3
     else
         echo "Controlador de almacenamiento añadido correctamente"
         
-        if ! VBoxManage createmedium disk --filename "$DISK_K8S" --size 51250 --format VMDK 2>> "$ERROR_FILE"; then
+        # Mover el disco del OS (OVA) de AHCI al controlador NVMe
+        VBoxManage storageattach "$nameVM" --storagectl "AHCI" --port 0 --device 0 --medium none 2>>"$ERROR_FILE" || true
+        VBoxManage storageattach "$nameVM" --storagectl "NVMe_Controller" --port 0 --device 0 --type hdd --medium "${PATH_VM_VIRTUALBOX}/disk.vmdk" 2>>"$ERROR_FILE"
+        
+        # Agregar controlador SATA separado para el disco de datos K8S
+        # Esto garantiza que aparezca como /dev/sda (predecible), sin colisionar con NVMe
+        if ! VBoxManage storagectl "$nameVM" --name "SATA_K8S_Data" --add sata --controller IntelAhci --portcount 1 2>>"$ERROR_FILE"; then
+            echo "Error crítico: Revisa los logs $ERROR_FILE -> ADDING_SATA_CONTROLLER"
+            exit 3
+        fi
+        echo "Controlador SATA de datos añadido correctamente"
+
+        if ! VBoxManage createmedium disk --filename "$DISK_K8S" --size 51250 --format VMDK 2>>"$ERROR_FILE"; then
             echo "Error crítico: Revisa los logs $ERROR_FILE -> CREATING_DISK"
             exit 4
         else
             echo "Disco creado correctamente"
         fi
 
-        if ! VBoxManage storageattach "$nameVM" --storagectl "NVMe_Controller" --port 0 --device 0 --type hdd --medium "$DISK_K8S" 2>> "$ERROR_FILE"; then
+        if ! VBoxManage storageattach "$nameVM" --storagectl "SATA_K8S_Data" --port 0 --device 0 --type hdd --medium "$DISK_K8S" 2>>"$ERROR_FILE"; then
             echo "Error crítico: Revisa los logs $ERROR_FILE -> ATTACHING_DISK"
             exit 5
         else
@@ -275,8 +364,14 @@ while [[ $# -gt 0 ]]; do
     -P|--httpProtocolIgnition)    HTTP_PROTO="$2"; shift 2 ;;
     -a|--IPAddressHttpIgnition)           IP_HTTP="$2"; shift 2 ;;
     -t|--httpPortIgnition)        HTTP_PORT="$2"; shift 2 ;;
+    --HTTP_PROTO_CA)           HTTP_PROTO_CA="$2"; shift 2 ;;
+    --HTTP_PORT_CA)           HTTP_PORT_CA="$2"; shift 2 ;;
     -o|--OVAFILE)                OVA_FILE="$2"; shift 2 ;;
     -k|--k8s_version)             K8S_VERSION="$2"; shift 2 ;;
+    -E|--endpointIP)              ENDPOINT_IP="$2"; shift 2 ;;
+    -M|--prefixMaster)            PREFIX_MASTER="$2"; shift 2 ;;
+    -u|--authorizationUser)       AUTHORIZATION_USER="$2"; shift 2 ;;
+    -A|--authorizationPassword)   AUTHORIZATION_PASSWORD="$2"; shift 2 ;;
     -h|--help)                    usage; ayuda; exit 0;;
     *) echo "Unknown option: $1"; usage; exit 1 ;;       
   esac
@@ -284,7 +379,7 @@ done
 
 case $ROLE in
     "") echo "Error: --nameVM is required"; usage; exit 1 ;;
-    "master")  CreateMaster "$NAME_VM" "$ROLE" "$PREFIX_IGNITION" "$IP_VM" "$MASK_VM" "$GW_VM" "$DNS_VM" "$HTTP_PROTO" "$IP_HTTP" "$HTTP_PORT" "$OVA_FILE" "$K8S_VERSION";;
+    "master")  CreateMaster "$NAME_VM" "$ROLE" "$PREFIX_IGNITION" "$IP_VM" "$MASK_VM" "$GW_VM" "$DNS_VM" "$HTTP_PROTO" "$IP_HTTP" "$HTTP_PORT" "$HTTP_PROTO_CA" "$HTTP_PORT_CA" "$OVA_FILE" "$K8S_VERSION" "$ENDPOINT_IP" "$PREFIX_MASTER" "$AUTHORIZATION_USER" "$AUTHORIZATION_PASSWORD";;
     "worker")  echo "Worker VM creation not implemented yet" ;;
     *) echo "Unknown role: $role"; usage; exit 1 ;;
 esac

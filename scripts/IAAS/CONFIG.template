@@ -1,0 +1,40 @@
+# setting hostnames, IPs, masks, gateway and DNS for the VMs
+
+# MASTER NODES
+HOSTNAME_MASTER := "k8s-master-01 k8s-master-02 k8s-master-03" # hostname for each master node separated by spaces
+MASTER_IP := "192.168.56.30 192.168.56.31 192.168.56.32" # ip addresses for each master node separated by spaces
+MASK_MASTER := "24" # mask for each master node
+GATEWAY_MASTER := "192.168.56.1" # gateway for each master node
+DNS_MASTER := "192.168.56.100" # DNS for each master node
+PREFIX_MASTER := "k8s.local" # prefix for the k8s solution
+
+# WORKER NODES
+HOSTNAME_WORKER := "k8s-worker-01 k8s-worker-02" # hostname for each worker node separated by spaces
+WORKER_IP := "192.168.56.70 192.168.56.71" # ip addresses for each worker node separated by spaces (eact ip must be in the same subnet than the gateway	)
+MASK_WORKER := "24" # mask 
+GATEWAY_WORKER := "192.168.56.1" # gateway for each worker node
+DNS_WORKER := "192.168.56.100" # DNS for each worker node
+PREFIX_MASTER := "k8s.local" # prefix for the k8s solution
+
+#Endpoint for API SERVER
+ENDPOINT_IP := "192.168.56.100" # ip address (must the Floating IP of the API server)
+ENDPOINT_PORT := "6443" # port (must the port of the API server)
+
+#setting the IP and Port for the HTTP server to serve the ignition file
+HTTP_PORT_IGNITION := "8443" # port separated by spaces (must the port of the HTTP server)
+HTTP_IP_IGNITION := "192.168.56.1" # ip address separated by spaces (must the IP of the HTTP server)
+HTTP_PROTO_IGNITION := "https" # protocol separated by spaces (must the protocol of the HTTP server)
+HTTP_USER_IGNITION := "usuario" # username  to connect to the HTTP server
+HTTP_PASSWORD_IGNITION := "password" # password to connect to the HTTP server
+HTTP_PROTO_CA := "http" # protocol separated by spaces (must the protocol of the HTTP server)
+HTTP_PORT_CA := "8080" # port separated by spaces (must the port of the HTTP server)
+
+# joining the hostnames and IPs for master and worker nodes
+DATA_MASTER = $(join $(addsuffix :,$(HOSTNAME_MASTER)),$(MASTER_IP))
+DATA_WORKER = $(join $(addsuffix :,$(HOSTNAME_WORKER)),$(WORKER_IP))
+
+OVA_FILE := "fedora-coreos-43.20260316.3.1-virtualbox.x86_64.ova" # filename of the OVA file
+
+#version Software
+K8S_VERSION := 1.35 # version of the Kubernetes cluster
+CILIUM_VERSION := 1.14.0 # version of the Cilium CNI

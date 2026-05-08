@@ -1,0 +1,281 @@
+variant: fcos
+version: 1.7.0
+passwd:
+  users:
+    - name: devopsadmin
+      groups: [sudo, wheel]
+      ssh_authorized_keys_local:
+        - keys/myKeys.pub
+
+storage:
+  files:
+    # 1. Configuración de Hostname
+    - path: /etc/hostname
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: "${HOSTNAME_LB}"
+
+    # 2. Disable Zincati Auto-Updates
+    - path: /etc/zincati/config.d/90-disable-auto-updates.toml
+      overwrite: true
+      contents:
+        inline: |
+          [updates]
+          enabled = false
+
+
+    # 3. Configuración de Red Estática para Interfaz Interna (enp0s8)
+    - path: /etc/NetworkManager/system-connections/enp0s8.nmconnection
+      overwrite: true    
+      mode: 0600
+      contents:
+        inline: |      
+          [connection]
+          id=enp0s8
+          type=ethernet
+          interface-name=enp0s8
+          [ipv4]
+          address=${IPAddressVM}/${maskVM},
+          dns=${IPAddressVM};
+          method=manual
+
+    # 4. Configuración de Red para Internet (enp0s3)
+    - path: /etc/NetworkManager/system-connections/enp0s3.nmconnection
+      overwrite: true  
+      mode: 0600
+      contents:
+        inline: |
+          [connection]
+          id=enp0s3
+          type=ethernet
+          interface-name=enp0s3
+          [ipv4]
+          method=auto
+
+
+    # 5. Configuración de Keepalived (HA / VRRP)
+    - path: /etc/keepalived/keepalived.conf
+      overwrite: true
+      mode: 0644
+      contents:
+        inline: |
+          global_defs {
+             router_id LVS_DEVEL
+          }
+
+          vrrp_switch_group VG_1 {
+             VI_1
+          }
+
+          vrrp_instance VI_1 {
+              state BACKUP
+              interface enp0s8
+              virtual_router_id 51
+              priority ${keepalivedPriority}
+              advert_int 1
+              authentication {
+                  auth_type PASS
+                  auth_pass ${KEEPALIVED_PASS}
+              }
+              virtual_ipaddress {
+                  ${vip_lb}/${maskVM} label enp0s8:vip
+              }
+          }
+
+    # 6. Configuración básica de HAProxy
+    - path: /etc/haproxy/haproxy.cfg
+      overwrite: true
+      mode: 0644
+      contents:
+        inline: |
+          # =========================================================
+          # HAProxy configuration for Kubernetes API (Production)
+          # =========================================================
+          global
+              log /dev/log local0
+              log /dev/log local1 notice
+              user haproxy
+              group haproxy
+              daemon
+              maxconn 10000
+              pidfile /var/run/haproxy.pid
+          # ---------------------------------------------------------
+          # Default settings
+          # ---------------------------------------------------------
+          defaults
+              log     global
+              mode    tcp
+              option  tcplog
+              option  dontlognull
+              timeout connect 5s
+              timeout client  60s
+              timeout server  60s
+              timeout check 5s
+              retries 3
+              
+          # ---------------------------------------------------------
+          # (Optional) DNS resolvers
+          # Use only if backend servers are defined with FQDN
+          # ---------------------------------------------------------
+          resolvers dns_ZoneK8S
+            nameserver dns1 127.0.0.1:53
+            resolve_retries 3
+            timeout retry 1s
+            hold valid 10s          
+
+          # ---------------------------------------------------------
+          # Frontend: Listen on port 6443 for Kubernetes API
+          # ---------------------------------------------------------
+          frontend k8s_api_server
+              bind *:6443
+              default_backend k8s_api_backend
+
+          # ---------------------------------------------------------
+          # Backend - Kubernetes Control Plane
+          # ---------------------------------------------------------
+          backend k8s_api_backend
+              mode tcp
+              balance roundrobin
+              option tcp-check
+              tcp-check connect port 6443
+              default-server inter 3s fall 3 rise 2 resolvers dns_ZoneK8S
+${HAPROXY_BACKEND_SERVERS}
+
+          # ---------------------------------------------------------
+          # Stats interface (explicitly requested)
+          # ---------------------------------------------------------
+          listen stats
+          bind *:9999 ssl crt /etc/haproxy/haproxy.pem
+          mode http
+          http-request redirect location /stats if { path / }
+          stats enable
+          stats uri /stats
+          stats hide-version
+          stats refresh 5s
+
+    # 7. Configuración básica de DNS BIND
+    - path: /etc/bind/named.conf.options
+      overwrite: true
+      mode: 0644
+      contents:
+        inline: |
+          options {
+            directory "/var/named";
+            dump-file "/var/named/data/cache_dump.db";
+            statistics-file "/var/named/data/named_stats.txt";
+            memstatistics-file "/var/named/data/named_mem_stats.txt";
+            secroots-file "/var/named/data/named.secroots";
+            recursing-file "/var/named/data/named.recursing";
+            recursion yes;
+            allow-recursion { any; };
+            allow-query { any; };
+            listen-on { any; };
+            listen-on-v6 { none; };
+            forwarders {
+              ${dnsRelay};
+            };
+            forward only;
+            dnssec-validation no;
+          };
+
+          zone "${prefixLB}" {
+            type master;
+            file "/etc/bind/${prefixLB}";
+          };
+
+
+    # 9. creación del archivo de zona en DNS BIND
+    - path: /etc/bind/${prefixLB}
+      overwrite: true
+      mode: 0644
+      contents:
+        inline: |
+          ${DOLLAR}TTL 86400
+          @ IN SOA haproxy.${prefixLB}. admin.${prefixLB}. (
+            2025121701 ; Serial (increment on each change)
+            3600 ; Refresh
+            1800 ; Retry
+            604800 ; Expire
+            86400 ) ; Negative Cache TTL
+          ; NS record
+          @ IN NS haproxy.${prefixLB}.
+          ; A records
+          haproxy IN A ${ENDPOINT_IP}
+${DNS_MASTER_RECORDS}
+${DNS_WORKER_RECORDS} 
+        
+systemd:
+  units:
+
+    # 0. Servicio Oneshot para generar certificado autofirmado para HAProxy Stats
+    - name: generate-haproxy-cert.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Generate Self-Signed Cert for HAProxy Stats
+        Before=haproxy.service
+        ConditionPathExists=!/etc/haproxy/haproxy.pem
+
+        [Service]
+        Type=oneshot
+        ExecStartPre=/usr/bin/mkdir -p /etc/haproxy
+        ExecStart=/usr/bin/openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout /etc/haproxy/haproxy.pem -out /etc/haproxy/haproxy.pem -subj "/CN=haproxy-stats"
+        ExecStartPost=/usr/bin/chmod 600 /etc/haproxy/haproxy.pem
+
+        [Install]
+        WantedBy=multi-user.target
+
+    # 1. Servicio Oneshot para instalar paquetes requeridos en FCOS
+    - name: install-packages.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Instalar haproxy, keepalived y bind9 (bind)
+        Wants=network-online.target
+        After=network-online.target
+        Before=zincati.service
+        ConditionPathExists=!/var/lib/pkg_installed.stamp
+
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        # policycoreutils-python-utils es necesario para el comando semanage (SELinux)
+        ExecStart=/usr/bin/rpm-ostree install -y bind keepalived haproxy policycoreutils-python-utils
+        ExecStartPost=/bin/touch /var/lib/pkg_installed.stamp
+        ExecStartPost=/usr/bin/systemctl reboot
+
+        [Install]
+        WantedBy=multi-user.target
+
+    # 2. Servicio Oneshot para Habilitar y Configurar posterior a la instalación
+    - name: enable-services.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Habilitar dependencias e inicializar reglas SELinux Post-Reboot
+        Wants=network-online.target
+        After=network-online.target install-packages.service
+        Requires=install-packages.service
+        ConditionPathExists=/var/lib/pkg_installed.stamp
+        ConditionPathExists=!/var/lib/svcs_enabled.stamp
+
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        # Autorizar explícitamente a HAProxy en SELinux para hacer bind en el puerto 6443 y su nuevo panel de stats (9999)
+        ExecStart=/usr/bin/systemctl mask --now systemd-resolved.service systemd-resolved-varlink.socket systemd-resolved-monitor.socket
+        ExecStart=/usr/sbin/semanage port -a -t http_port_t -p tcp 6443
+        ExecStart=/usr/sbin/semanage port -m -t http_port_t -p tcp 9999
+        ExecStart=/usr/sbin/setsebool -P haproxy_connect_any 1
+        # Deshabilitar systemd-resolved y rutear /etc/resolv.conf localmente a BIND despues de descargar utilitarios
+        ExecStart=/usr/bin/systemctl mask --now systemd-resolved
+        ExecStart=/usr/bin/bash -c "rm -f /etc/resolv.conf && echo 'nameserver 127.0.0.1' > /etc/resolv.conf && echo 'search ${prefixLB}' >> /etc/resolv.conf"
+        # Vincular las opciones personalizadas de Ubuntu BIND para que Fedora Named las lea
+        ExecStart=/usr/bin/ln -sf /etc/bind/named.conf.options /etc/named.conf
+        # Habilitar los servicios nativamente una vez los binarios existen
+        ExecStart=/usr/bin/systemctl enable --now haproxy keepalived named
+        ExecStartPost=/bin/touch /var/lib/svcs_enabled.stamp
+
+        [Install]
+        WantedBy=multi-user.target
