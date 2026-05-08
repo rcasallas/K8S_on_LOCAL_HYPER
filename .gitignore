@@ -1,14 +1,13 @@
-# VAGRANT FILES
+dynamic/*
+scripts/K8S/
+scripts/IAAS/myKey
+scripts/IAAS/MyPersonalKey
 keys/*
 OVA/*.ova
 *.ign
 *.log
 *.mk
-dynamic/*
 *.pub
 *key*
-scripts/K8S/*
-scripts/IAAS/myKey
-scripts/IAAS/MyPersonalKey
 *.exc
 
