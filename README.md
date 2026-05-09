@@ -1,4 +1,4 @@
-# Proyecto DevOps: Vagrant con Fedora CoreOS
+# Proyecto DevOps: L8s on Fedora CoreOS
 
 Este proyecto configura 3 máquinas virtuales (VMs) usando Vagrant y VirtualBox, cada una ejecutando Fedora CoreOS.
 
