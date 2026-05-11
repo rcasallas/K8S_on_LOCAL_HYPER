@@ -153,6 +153,15 @@ function CreateMaster(){
             echo "VM configurada correctamente (CHIPSET)"
         fi
 
+        # Configurar RTC en UTC para que el guest reciba la hora correcta desde el boot
+        # (sin esto, VirtualBox pasa el reloj local del host como UTC al guest, causando skew de 5h en Colombia UTC-5)
+        if ! VBoxManage modifyvm "$nameVM" --rtcuseutc on 2>> "$ERROR_FILE" >> "$LOG_FILE"; then
+            echo "Error crítico: Revisa los logs $ERROR_FILE -> MODIFYING_VM_RTC"
+            exit 1
+        else
+            echo "VM configurada correctamente (RTC UTC)"
+        fi
+
         if ! VBoxManage modifyvm "$nameVM" --nic1 bridged --bridgeadapter1 eno1 2>> "$ERROR_FILE"; then
             echo "Error crítico: Revisa los logs $ERROR_FILE -> MODIFYING_VM_NIC1"
             exit 1

@@ -147,7 +147,9 @@ storage:
           /bin/sed -i 's/^SELINUX=enforcing$/SELINUX=permissive/' /etc/selinux/config
 
           # Instalar containerd y runc via rpm-ostree
-          /usr/bin/rpm-ostree install containerd runc
+          /usr/bin/rpm-ostree update
+    
+          /usr/bin/rpm-ostree install containerd runc kubelet kubeadm kubectl
 
           # Generar configuración base de containerd
           mkdir -p /etc/containerd/
@@ -167,36 +169,14 @@ storage:
 
 systemd:
   units:
-    # 1. Servicio Oneshot para Instalar containerd y runc
-    - name: install-containerd-runc.service
-      enabled: true
-      contents: |
-        [Unit]
-        Description=Instalar Binarios containerd and runc
-        Wants=network-online.target
-        After=network-online.target
-        ConditionPathExists=!/var/lib/containerd-runc-installed
-        StartLimitIntervalSec=0
-
-        [Service]
-        Type=oneshot
-        RemainAfterExit=yes
-        ExecStart=/usr/local/bin/install-containerd-runc.sh
-        ExecStartPost=/bin/touch /var/lib/containerd-runc-installed
-
-        [Install]
-        WantedBy=multi-user.target
-
-    # 2. Servicio Oneshot para Habilitar y Configurar posterior a la instalación
+    # 1. Servicio Oneshot para Habilitar y Configurar posterior a la instalación
     - name: enable-services.service
       enabled: true
       contents: |
         [Unit]
         Description=Habilitar dependencias e inicializar reglas SELinux Post-Reboot
         Wants=network-online.target
-        After=network-online.target install-containerd-runc.service
-        Requires=install-containerd-runc.service
-        ConditionPathExists=/var/lib/containerd-runc-installed
+        After=network-online.target 
         ConditionPathExists=!/var/lib/svcs_enabled.stamp
 
 
@@ -213,6 +193,28 @@ systemd:
 
         [Install]
         WantedBy=multi-user.target
+    # 2. Servicio Oneshot para Instalar containerd y runc
+    - name: install-containerd-runc.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Instalar Binarios containerd and runc
+        Wants=network-online.target
+        Requires=time-sync.target enable-services.service
+        After=network-online.target time-sync.target enable-services.service
+        ConditionPathExists=!/var/lib/containerd-runc-installed
+        StartLimitIntervalSec=0
+
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/usr/local/bin/install-containerd-runc.sh
+        ExecStartPost=/bin/touch /var/lib/containerd-runc-installed
+
+        [Install]
+        WantedBy=multi-user.target
+
+
 
     # 3. Mask zram to prevent automatic memory compression setup (disable swap)
     - name: systemd-zram-setup@zram0.service
