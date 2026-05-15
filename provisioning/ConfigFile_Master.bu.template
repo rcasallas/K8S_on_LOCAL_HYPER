@@ -146,10 +146,11 @@ storage:
           /usr/sbin/setenforce 0 || true
           /bin/sed -i 's/^SELINUX=enforcing$/SELINUX=permissive/' /etc/selinux/config
 
-          # Instalar containerd y runc via rpm-ostree
-          /usr/bin/rpm-ostree update
+          # Update repos installed (to include needed packages)
+          /usr/bin/rpm-ostree refresh-md
     
-          /usr/bin/rpm-ostree install containerd runc kubelet kubeadm kubectl
+          # Install base components
+          /usr/bin/rpm-ostree install containerd runc kubelet kubeadm kubectl conntrack cri-tools kubernetes-cni
 
           # Generar configuración base de containerd
           mkdir -p /etc/containerd/
@@ -167,17 +168,32 @@ storage:
           # Marcar instalación como completada
           touch /var/lib/containerd-runc-installed
 
+    # 11. kubeadm-config.yaml
+    - path: /etc/kubernetes/kubeadm-config.yaml
+      overwrite: true
+      contents:
+        inline: |
+          apiVersion: kubeadm.k8s.io/v1beta4 
+          kind: ClusterConfiguration 
+          kubernetesVersion: v1.32.11 
+          controlPlaneEndpoint: "haproxy.training.lab:6443" 
+          networking: 
+            podSubnet: 10.244.0.0/16 
+            serviceSubnet: 10.96.0.0/12 
+          --- 
+          apiVersion: kubelet.config.k8s.io/v1beta1 kind: KubeletConfiguration cgroupDriver: systemd EOF          
+
 systemd:
   units:
     # 1. Servicio Oneshot para Habilitar y Configurar posterior a la instalación
-    - name: enable-services.service
+    - name: enable-dns.service
       enabled: true
       contents: |
         [Unit]
         Description=Habilitar dependencias e inicializar reglas SELinux Post-Reboot
         Wants=network-online.target
         After=network-online.target 
-        ConditionPathExists=!/var/lib/svcs_enabled.stamp
+        ConditionPathExists=!/var/lib/enable-dns-service.stamp
 
 
         [Service]
@@ -189,10 +205,11 @@ systemd:
         ExecStart=/usr/sbin/sysctl --system # setting the network parameters for K8S
         # Vincular las opciones personalizadas de Ubuntu BIND para que Fedora Named las lea
         ExecStart=/usr/bin/ln -sf /etc/bind/named.conf.options /etc/named.conf
-        ExecStartPost=/bin/touch /var/lib/svcs_enabled.stamp
+        ExecStartPost=/bin/touch /var/lib/enable-dns-service.stamp
 
         [Install]
         WantedBy=multi-user.target
+
     # 2. Servicio Oneshot para Instalar containerd y runc
     - name: install-containerd-runc.service
       enabled: true
@@ -200,8 +217,8 @@ systemd:
         [Unit]
         Description=Instalar Binarios containerd and runc
         Wants=network-online.target
-        Requires=time-sync.target enable-services.service
-        After=network-online.target time-sync.target enable-services.service
+        Requires=time-sync.target enable-dns.service
+        After=network-online.target time-sync.target enable-dns.service
         ConditionPathExists=!/var/lib/containerd-runc-installed
         StartLimitIntervalSec=0
 
@@ -210,17 +227,36 @@ systemd:
         RemainAfterExit=yes
         ExecStart=/usr/local/bin/install-containerd-runc.sh
         ExecStartPost=/bin/touch /var/lib/containerd-runc-installed
+        ExecStartPost=/usr/bin/systemctl reboot
 
         [Install]
         WantedBy=multi-user.target
 
+    # 3. enable kubelet and crictl service
+    - name: enable-kubelet-crictl.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=enable kubelet and crictl service
+        Wants=network-online.target
+        After=network-online.target install-containerd-runc.service
+        ConditionPathExists=!/var/lib/kubelet-enabled
 
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/usr/bin/systemctl enable --now kubelet
+        ExecStart=/usr/bin/crictl config --set runtime-endpoint=unix:///run/containerd/containerd.sock --set image-endpoint=unix:///run/containerd/containerd.sock
+        ExecStartPost=/bin/touch /var/lib/kubelet-crictl-enabled
+ 
+        [Install]
+        WantedBy=multi-user.target
 
-    # 3. Mask zram to prevent automatic memory compression setup (disable swap)
+    # 4. Mask zram to prevent automatic memory compression setup (disable swap)
     - name: systemd-zram-setup@zram0.service
       mask: true
-
-    # 4. Mask systemd-resolved y sus sockets desde el primer boot
+    
+    # 5. Mask systemd-resolved y sus sockets desde el primer boot
     #    (el servicio enable-services.service los enmascara en runtime,
     #     pero estos mask:true aseguran que no arranquen antes de eso)
     - name: systemd-resolved.service
@@ -229,3 +265,27 @@ systemd:
       mask: true
     - name: systemd-resolved-monitor.socket
       mask: true
+
+
+    # 6. init K8s master service
+    - name: init-k8s-master.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=init K8s master
+        Wants=network-online.target
+        After=network-online.target enable-kubelet-crictl.service
+        ConditionPathExists=!/var/lib/k8s-init-master-enabled
+
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/bin/bash -c "kubeadm config print init-defaults > /etc/kubernetes/kubeadm-config.yaml"
+        ExecStart=/usr/bin/sed -i 's/kind: ClusterConfiguration/kind: ClusterConfiguration\\ncontrolPlaneEndpoint: ${ENDPOINT_IP}:6443/' /etc/kubernetes/kubeadm-config.yaml
+        ExecStart=/usr/bin/sed -i 's/dnsDomain: cluster.local/dnsDomain: ${PREFIX_MASTER}/' /etc/kubernetes/kubeadm-config.yaml
+        ExecStart=/usr/bin/sed -i 's|serviceSubnet: 10.96.0.0/12|serviceSubnet: 10.96.0.0/12\\n  podSubnet: 10.244.0.0/16|' /etc/kubernetes/kubeadm-config.yaml
+        ExecStartPost=/bin/touch /var/lib/k8s-init-master-enabled
+ 
+        [Install]
+        WantedBy=multi-user.target
+        
