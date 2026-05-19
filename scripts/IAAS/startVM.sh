@@ -23,6 +23,8 @@ usage() {
     echo "  -o, --OVAFILE                  Path to the OVA file (Default: fedora-coreos-43.20260316.3.1-virtualbox.x86_64.ova)"
     echo "  -k, --k8s_version              K8s version to install."
     echo "  -E, --endpointIP               Endpoint IP (LB)"
+    echo "  -H, --endpointHost             Endpoint Hostname (HAProxy)"
+    echo "  -p, --endpointPort             Endpoint Port (HAProxy)"
     echo "  -M, --prefixMaster             Prefix Master (Domain)"
     echo "  -h, --help                     Show this help"
     echo ""
@@ -89,15 +91,31 @@ function CreateMaster(){
     ENDPOINT_IP=${15}
     #echo "ENDPOINT_IP: $ENDPOINT_IP"
 
-    PREFIX_MASTER=${16}
+    ENDPOINT_HOST=${16}
+    #echo "ENDPOINT_HOST: $ENDPOINT_HOST"
+    
+    ENDPOINT_PORT=${17}
+    #echo "ENDPOINT_PORT: $ENDPOINT_PORT"
+
+    PREFIX_MASTER=${18}
     #echo "PREFIX_MASTER: $PREFIX_MASTER"
 
-    AUTHORIZATION_USER=${17}
+    AUTHORIZATION_USER=${19}
     #echo "AUTHORIZATION_USER: $AUTHORIZATION_USER"
     
-    AUTHORIZATION_PASSWORD=${18}
+    AUTHORIZATION_PASSWORD=${20}
     #echo "AUTHORIZATION_PASSWORD: $AUTHORIZATION_PASSWORD"
+
+    SUBNET_POD=${21}
+    #echo "SUBNET_POD: $SUBNET_POD"
+
+    SUBNET_SERVICE=${22}
+    #echo "SUBNET_SERVICE: $SUBNET_SERVICE"
     
+    KUBEADM_TOKEN=${23}
+    CERTIFICATE_KEY=${24}
+    FIRST_MASTER_HOSTNAME=${25}
+
     # get the home directory of the user running the script
     homeDir=$(getent passwd $USER | cut -d: -f6)
 
@@ -253,7 +271,14 @@ function CreateMaster(){
     export DNS_VM="$dnsVM"
     
     export ENDPOINT_IP="$ENDPOINT_IP"
+    export ENDPOINT_HOST="$ENDPOINT_HOST"
+    export ENDPOINT_PORT="$ENDPOINT_PORT"
     export PREFIX_MASTER="$PREFIX_MASTER"
+    export SUBNET_POD="$SUBNET_POD"
+    export SUBNET_SERVICE="$SUBNET_SERVICE"
+    export KUBEADM_TOKEN="$KUBEADM_TOKEN"
+    export CERTIFICATE_KEY="$CERTIFICATE_KEY"
+    export FIRST_MASTER_HOSTNAME="$FIRST_MASTER_HOSTNAME"
     
     export INIT_IGNITION_FILE_FULL="$INIT_IGNITION_FILE_FULL"
 
@@ -369,9 +394,16 @@ while [[ $# -gt 0 ]]; do
     -o|--OVAFILE)                OVA_FILE="$2"; shift 2 ;;
     -k|--k8s_version)             K8S_VERSION="$2"; shift 2 ;;
     -E|--endpointIP)              ENDPOINT_IP="$2"; shift 2 ;;
+    -H|--endpointHost)            ENDPOINT_HOST="$2"; shift 2 ;;
+    -p|--endpointPort)            ENDPOINT_PORT="$2"; shift 2 ;;
     -M|--prefixMaster)            PREFIX_MASTER="$2"; shift 2 ;;
     -u|--authorizationUser)       AUTHORIZATION_USER="$2"; shift 2 ;;
     -A|--authorizationPassword)   AUTHORIZATION_PASSWORD="$2"; shift 2 ;;
+    -s|--SUBNET_POD)              SUBNET_POD="$2"; shift 2 ;;
+    -S|--SUBNET_SERVICE)          SUBNET_SERVICE="$2"; shift 2 ;;
+    --kubeadmToken)               KUBEADM_TOKEN="$2"; shift 2 ;;
+    --certificateKey)             CERTIFICATE_KEY="$2"; shift 2 ;;
+    --firstMaster)                FIRST_MASTER_HOSTNAME="$2"; shift 2 ;;
     -h|--help)                    usage; ayuda; exit 0;;
     *) echo "Unknown option: $1"; usage; exit 1 ;;       
   esac
@@ -379,7 +411,7 @@ done
 
 case $ROLE in
     "") echo "Error: --nameVM is required"; usage; exit 1 ;;
-    "master")  CreateMaster "$NAME_VM" "$ROLE" "$PREFIX_IGNITION" "$IP_VM" "$MASK_VM" "$GW_VM" "$DNS_VM" "$HTTP_PROTO" "$IP_HTTP" "$HTTP_PORT" "$HTTP_PROTO_CA" "$HTTP_PORT_CA" "$OVA_FILE" "$K8S_VERSION" "$ENDPOINT_IP" "$PREFIX_MASTER" "$AUTHORIZATION_USER" "$AUTHORIZATION_PASSWORD";;
+    "master")  CreateMaster "$NAME_VM" "$ROLE" "$PREFIX_IGNITION" "$IP_VM" "$MASK_VM" "$GW_VM" "$DNS_VM" "$HTTP_PROTO" "$IP_HTTP" "$HTTP_PORT" "$HTTP_PROTO_CA" "$HTTP_PORT_CA" "$OVA_FILE" "$K8S_VERSION" "$ENDPOINT_IP" "$ENDPOINT_HOST" "$ENDPOINT_PORT" "$PREFIX_MASTER" "$AUTHORIZATION_USER" "$AUTHORIZATION_PASSWORD" "$SUBNET_POD" "$SUBNET_SERVICE" "$KUBEADM_TOKEN" "$CERTIFICATE_KEY" "$FIRST_MASTER_HOSTNAME";;
     "worker")  echo "Worker VM creation not implemented yet" ;;
     *) echo "Unknown role: $role"; usage; exit 1 ;;
 esac

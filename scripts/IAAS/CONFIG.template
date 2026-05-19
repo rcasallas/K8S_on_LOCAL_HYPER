@@ -18,6 +18,7 @@ PREFIX_MASTER := "k8s.local" # prefix for the k8s solution
 
 #Endpoint for API SERVER
 ENDPOINT_IP := "192.168.56.100" # ip address (must the Floating IP of the API server)
+ENDPOINT_HOST := "haproxy.k8s.local"
 ENDPOINT_PORT := "6443" # port (must the port of the API server)
 
 #setting the IP and Port for the HTTP server to serve the ignition file
@@ -38,3 +39,11 @@ OVA_FILE := "fedora-coreos-43.20260316.3.1-virtualbox.x86_64.ova" # filename of 
 #version Software
 K8S_VERSION := 1.35 # version of the Kubernetes cluster
 CILIUM_VERSION := 1.14.0 # version of the Cilium CNI
+
+#Subnet Service
+SUBNET_POD := 10.244.0.0/16
+SUBNET_SERVICE := 10.96.0.0/12
+
+# Kubeadm Bootstrap Tokens
+KUBEADM_TOKEN := "abcdef.0123456789abcdef"
+CERTIFICATE_KEY := "382420d12f74b1c2f2834174c7fda59898be760552aaab9ef5473be43f07bf0c"

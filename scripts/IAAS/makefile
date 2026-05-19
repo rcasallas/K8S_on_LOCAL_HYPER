@@ -94,7 +94,8 @@ startVM:
 		#echo "$(HTTP_PROTO_CA) - httpProtocolCA"; \
 		#echo "$(HTTP_PORT_CA) - httpPortCA"; \
 		#echo "$(OVA_FILE) - OVAFILE"; \
-		./startVM.sh --nameVM "$$HOSTNAME" --role master --prefixButaneIgnitionName preconfig --IPAddressVM "$$IPADDRESS" --maskVM "$(MASK_MASTER)" --gatewayVM "$(GATEWAY_MASTER)" --dnsVM "$${DNS_TMP// /;}"  --httpProtocolIgnition "$(HTTP_PROTO_IGNITION)" --IPAddressHttpIgnition "$(HTTP_IP_IGNITION)" --httpPortIgnition "$(HTTP_PORT_IGNITION)" --HTTP_PROTO_CA "$(HTTP_PROTO_CA)" --HTTP_PORT_CA "$(HTTP_PORT_CA)" --OVAFILE "$(OVA_FILE)" --k8s_version "$(K8S_VERSION)" --endpointIP "$(ENDPOINT_IP)" --prefixMaster "$(PREFIX_MASTER)" --authorizationUser "$(HTTP_USER_IGNITION)" --authorizationPassword "$(HTTP_PASSWORD_IGNITION)"; \
+		FIRST_MASTER=$$(echo $(HOSTNAME_MASTER) | tr -d '"' | awk '{print $$1}'); \
+		./startVM.sh --nameVM "$$HOSTNAME" --role master --prefixButaneIgnitionName preconfig --IPAddressVM "$$IPADDRESS" --maskVM "$(MASK_MASTER)" --gatewayVM "$(GATEWAY_MASTER)" --dnsVM "$${DNS_TMP// /;}"  --httpProtocolIgnition "$(HTTP_PROTO_IGNITION)" --IPAddressHttpIgnition "$(HTTP_IP_IGNITION)" --httpPortIgnition "$(HTTP_PORT_IGNITION)" --HTTP_PROTO_CA "$(HTTP_PROTO_CA)" --HTTP_PORT_CA "$(HTTP_PORT_CA)" --OVAFILE "$(OVA_FILE)" --k8s_version "$(K8S_VERSION)" --endpointIP "$(ENDPOINT_IP)" --endpointHost "$(ENDPOINT_HOST)" --endpointPort "$(ENDPOINT_PORT)" --prefixMaster "$(PREFIX_MASTER)" --authorizationUser "$(HTTP_USER_IGNITION)" --authorizationPassword "$(HTTP_PASSWORD_IGNITION)" --kubeadmToken "$(KUBEADM_TOKEN)" --certificateKey "$(CERTIFICATE_KEY)" --firstMaster "$$FIRST_MASTER"; \
 	done
 	
 startLB:

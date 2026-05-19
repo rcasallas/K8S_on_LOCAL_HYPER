@@ -4,7 +4,7 @@
 
 # 1. Definición de variables
 NAMEVM=$1
-LOG_FILE="ERRORS_VM.txt"
+LOG_FILE="ERRORS_VM.log"
 
 # 2. Buscar si la VM está corriendo
 # Usamos -v para pasar la variable de Bash a awk de forma limpia

@@ -1,0 +1,314 @@
+variant: fcos
+version: 1.7.0
+passwd:
+  users:
+    - name: devopsadmin
+      groups: [sudo, wheel]
+      ssh_authorized_keys_local:
+        - keys/myKeys.pub
+storage:
+  disks:
+    - device: /dev/sda              # Disco de datos K8S en controlador SATA separado (siempre /dev/sda)
+      wipe_table: true               # Seguro: disco nuevo vacío creado por VBoxManage
+      partitions:
+        - label: k8s-master-data
+          number: 1
+  filesystems:
+    - device: /dev/disk/by-partlabel/k8s-master-data
+      format: xfs
+      path: /var/lib/kubernetes
+      wipe_filesystem: true
+      with_mount_unit: true
+  directories:
+    - path: /var/lib/kubernetes/containerd
+      mode: 0755
+    - path: /var/lib/kubernetes/kubelet
+      mode: 0755
+  links:
+    - path: /var/lib/containerd
+      target: /var/lib/kubernetes/containerd
+      overwrite: true
+    - path: /var/lib/kubelet
+      target: /var/lib/kubernetes/kubelet
+      overwrite: true
+  files:
+    - path: /usr/local/bin/k8s-bootstrap.sh
+      mode: 0755
+      contents:
+        inline: |
+          #!/bin/bash
+          set -e
+          if [ "test" == "test" ]; then
+            echo "Initializing Kubernetes Master 01..."
+            kubeadm init --config=/etc/kubernetes/kubeadm-config.yaml --upload-certs --certificate-key test | tee /var/lib/kubernetes/kubeadm-init.out
+          else
+            echo "Waiting for API Server at test:test..."
+            while ! curl -s -k https://test:test/healthz; do
+              sleep 10
+            done
+            echo "Joining Kubernetes Cluster..."
+            kubeadm join test:test \
+              --token test \
+              --discovery-token-unsafe-skip-ca-verification \
+              --control-plane --certificate-key test \
+              --apiserver-advertise-address=test
+          fi
+          
+          mkdir -p /var/home/devopsadmin/.kube 
+          cp -i /etc/kubernetes/admin.conf /var/home/devopsadmin/.kube/config 
+          chown devopsadmin:devopsadmin /var/home/devopsadmin/.kube/config
+          mkdir -p /root/.kube
+          cp -i /etc/kubernetes/admin.conf /root/.kube/config
+
+    # 1. setting the hostname
+    - path: /etc/hostname
+      overwrite: true
+      contents:
+        inline: "test"
+
+    # 2. Disable Zincati Auto-Updates
+    - path: /etc/zincati/config.d/90-disable-auto-updates.toml
+      overwrite: true
+      contents:
+        inline: |
+          [updates]
+          enabled = false
+
+    # 3. Disable IPv6        
+    - path: /etc/sysctl.d/10-disable-ipv6.conf
+      overwrite: true
+      contents:
+        inline: |
+          # disable IPv6
+          net.ipv6.conf.all.disable_ipv6 = 1
+          net.ipv6.conf.default.disable_ipv6 = 1
+          net.ipv6.conf.enp0s4.disable_ipv6 = 1
+
+    # 4. Configuración de Repositorio K8s 
+    - path: /etc/yum.repos.d/kubernetes.repo
+      overwrite: true
+      mode: 0644
+      contents: 
+        inline: |
+          [kubernetes]
+          name=Kubernetes
+          baseurl=https://pkgs.k8s.io/core:/stable:/v/rpm/
+          enabled=1
+          gpgcheck=1
+          gpgkey=https://pkgs.k8s.io/core:/stable:/v/rpm/repodata/repomd.xml.key
+
+    # 5. Configuración de Red Estática
+    - path: /etc/NetworkManager/system-connections/enp0s8.nmconnection
+      overwrite: true    
+      mode: 0600
+      contents:
+        inline: |      
+          [connection]
+          id=enp0s8
+          type=ethernet
+          interface-name=enp0s8
+          [ipv4]
+          address=test/,
+          dns=;
+          method=manual
+
+    # 6. Configuración de Red Estática Internet
+    - path: /etc/NetworkManager/system-connections/enp0s3.nmconnection
+      overwrite: true  
+      mode: 0600
+      contents:
+        inline: |
+          [connection]
+          id=enp0s3
+          type=ethernet
+          interface-name=enp0s3
+          [ipv4]
+          method=auto
+
+    # 7. Deshabilitar gestión de DNS en NetworkManager
+    - path: /etc/NetworkManager/conf.d/90-dns-none.conf
+      overwrite: true
+      mode: 0644
+      contents:
+        inline: |
+          [main]
+          dns=none
+
+    # 7.1 Configuración estática de resolv.conf
+    - path: /etc/resolv.conf
+      overwrite: true
+      mode: 0644
+      contents:
+        inline: |
+          nameserver 
+          search test
+
+    # 8. Load modules for K8S
+    - path: /etc/modules-load.d/k8s.conf
+      overwrite: true
+      mode: 0644
+      contents:
+        inline: |
+          overlay
+          br_netfilter
+    
+    # 9. Configure sysctl params for Kubernetes networking
+    - path: /etc/sysctl.d/k8s.conf
+      overwrite: true
+      mode: 0644
+      contents:
+        inline: |
+          net.bridge.bridge-nf-call-iptables  = 1
+          net.bridge.bridge-nf-call-ip6tables = 1
+          net.ipv4.ip_forward                 = 1
+
+    # 10. Script de instalación de containerd y runc
+    - path: /usr/local/bin/install-containerd-runc.sh
+      mode: 0755
+      overwrite: true
+      contents:
+        inline: |
+          #!/bin/bash
+          set -euo pipefail
+
+          # Salir si ya fue instalado
+          if [ -f /var/lib/containerd-runc-installed ]; then
+            exit 0
+          fi
+
+          # Poner SELinux en modo permissive
+          /usr/sbin/setenforce 0 || true
+          /bin/sed -i 's/^SELINUX=enforcing$/SELINUX=permissive/' /etc/selinux/config
+
+          # Update repos installed (to include needed packages)
+          /usr/bin/rpm-ostree refresh-md
+    
+          # Install base components
+          /usr/bin/rpm-ostree install containerd runc kubelet kubeadm kubectl conntrack cri-tools kubernetes-cni
+
+          # Generar configuración base de containerd
+          mkdir -p /etc/containerd/
+          containerd config default | tee /etc/containerd/config.toml > /dev/null
+
+          # Ajustar la imagen de pause
+          sed -i 's#sandbox_image = "registry.k8s.io/pause:3\..*"#sandbox_image = "registry.k8s.io/pause:3.10"#' /etc/containerd/config.toml
+
+          # Habilitar SystemdCgroup
+          sed -i 's/^\(\s*SystemdCgroup = \).*/\1true/' /etc/containerd/config.toml
+
+          # Habilitar e iniciar containerd
+          systemctl enable --now containerd
+
+          # Marcar instalación como completada
+          touch /var/lib/containerd-runc-installed
+
+
+systemd:
+  units:
+    # 1. Servicio Oneshot para Habilitar y Configurar posterior a la instalación
+    - name: enable-dns.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Habilitar dependencias e inicializar reglas SELinux Post-Reboot
+        Wants=network-online.target
+        After=network-online.target 
+        ConditionPathExists=!/var/lib/enable-dns-service.stamp
+
+
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        # Deshabilitar systemd-resolved y sus sockets (varlink + monitor) para evitar conflictos con DNS local
+        ExecStart=/usr/bin/systemctl mask --now systemd-resolved.service systemd-resolved-varlink.socket systemd-resolved-monitor.socket
+        ExecStart=/usr/sbin/sysctl --system # setting the network parameters for K8S
+        # Vincular las opciones personalizadas de Ubuntu BIND para que Fedora Named las lea
+        ExecStart=/usr/bin/ln -sf /etc/bind/named.conf.options /etc/named.conf
+        ExecStartPost=/bin/touch /var/lib/enable-dns-service.stamp
+
+        [Install]
+        WantedBy=multi-user.target
+
+    # 2. Servicio Oneshot para Instalar containerd y runc
+    - name: install-containerd-runc.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Instalar Binarios containerd and runc
+        Wants=network-online.target
+        Requires=time-sync.target enable-dns.service
+        After=network-online.target time-sync.target enable-dns.service
+        ConditionPathExists=!/var/lib/containerd-runc-installed
+        StartLimitIntervalSec=0
+
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/usr/local/bin/install-containerd-runc.sh
+        ExecStartPost=/bin/touch /var/lib/containerd-runc-installed
+        ExecStartPost=/usr/bin/systemctl reboot
+
+        [Install]
+        WantedBy=multi-user.target
+
+    # 3. enable kubelet and crictl service
+    - name: enable-kubelet-crictl.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=enable kubelet and crictl service
+        Wants=network-online.target
+        After=network-online.target install-containerd-runc.service
+        ConditionPathExists=!/var/lib/kubelet-enabled
+
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/usr/bin/systemctl enable --now kubelet
+        ExecStart=/usr/bin/crictl config --set runtime-endpoint=unix:///run/containerd/containerd.sock --set image-endpoint=unix:///run/containerd/containerd.sock
+        ExecStartPost=/bin/touch /var/lib/kubelet-crictl-enabled
+ 
+        [Install]
+        WantedBy=multi-user.target
+
+    # 4. Mask zram to prevent automatic memory compression setup (disable swap)
+    - name: systemd-zram-setup@zram0.service
+      mask: true
+    
+    # 5. Mask systemd-resolved y sus sockets desde el primer boot
+    #    (el servicio enable-services.service los enmascara en runtime,
+    #     pero estos mask:true aseguran que no arranquen antes de eso)
+    - name: systemd-resolved.service
+      mask: true
+    - name: systemd-resolved-varlink.socket
+      mask: true
+    - name: systemd-resolved-monitor.socket
+      mask: true
+
+
+    # 6. init K8s master service
+    - name: init-k8s-master.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=init K8s master
+        Wants=network-online.target
+        After=network-online.target enable-kubelet-crictl.service
+        ConditionPathExists=!/var/lib/k8s-init-master-enabled
+
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/bin/bash -c "kubeadm config print init-defaults > /etc/kubernetes/kubeadm-config.yaml"
+        ExecStart=/usr/bin/sed -i 's/name: node/name: test/' /etc/kubernetes/kubeadm-config.yaml
+        ExecStart=/usr/bin/sed -i 's/kind: ClusterConfiguration/kind: ClusterConfiguration\\ncontrolPlaneEndpoint: test:test/' /etc/kubernetes/kubeadm-config.yaml
+        ExecStart=/usr/bin/sed -i 's/dnsDomain: cluster.local/dnsDomain: test/' /etc/kubernetes/kubeadm-config.yaml
+        ExecStart=/usr/bin/sed -i 's/advertiseAddress: 1.2.3.4/advertiseAddress: test/' /etc/kubernetes/kubeadm-config.yaml
+        ExecStart=/usr/bin/sed -i 's|serviceSubnet: 10.96.0.0/12|serviceSubnet: test\\n  podSubnet: test|' /etc/kubernetes/kubeadm-config.yaml
+        ExecStart=/usr/bin/sed -i 's|controllerManager: {}|controllerManager:\\n  extraArgs:\\n  - name: flex-volume-plugin-dir\\n    value: "/var/lib/kubelet/volumeplugins"|' /etc/kubernetes/kubeadm-config.yaml
+        ExecStart=/usr/local/bin/k8s-bootstrap.sh
+        ExecStartPost=/bin/touch /var/lib/k8s-init-master-enabled
+ 
+        [Install]
+        WantedBy=multi-user.target
+        
