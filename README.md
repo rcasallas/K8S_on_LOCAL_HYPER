@@ -78,8 +78,7 @@ scripts/IAAS/LB.mk        # Variables de configuración de los LBs (ver LB.mk.te
 ```
 .
 ├── provisioning/
-│   ├── ConfigFile_Master.bu.template   # Butane template para nodos master
-│   ├── ConfigFile_Worker.bu.template   # Butane template para nodos worker
+│   ├── ConfigFile_Master.bu.template   # Butane template unificado para nodos master y worker
 │   ├── ConfigFile_LB.FCOS.bu.template  # Butane template para load balancers
 │   └── InitVM.bu.template              # Butane template de pre-configuración (Init)
 │
@@ -186,17 +185,19 @@ Cada nodo se configura en el primer boot mediante dos archivos Ignition:
 | `preconfig_<hostname>.ign` | Config inicial (Init): usuario, red básica, descarga del config principal |
 | `<hostname>.ign` | Config principal: red estática, disco de datos, servicios systemd |
 
-### Servicios systemd instalados en los masters
+### Servicios systemd instalados en los nodos (Master / Worker)
 
-| Servicio | Tipo | Función |
-|----------|------|---------|
-| `install-containerd-runc.service` | oneshot | Instala/verifica containerd y runc vía `rpm-ostree` |
-| `enable-services.service` | oneshot | Enmascara `systemd-resolved`, configura DNS local, aplica sysctl |
-| `systemd-zram-setup@zram0.service` | masked | Deshabilitado (sin swap) |
-| `systemd-resolved.service` | masked | Reemplazado por BIND DNS del LB |
-| `systemd-resolved-varlink.socket` | masked | Socket asociado, también enmascarado |
+La lógica de ejecución de los servicios de clúster está controlada dinámicamente mediante `ExecCondition` evaluando la variable de entorno `TYPE_NODE` durante el aprovisionamiento.
 
-### Almacenamiento en masters
+| Servicio | Roles | Función |
+|----------|-------|---------|
+| `install-containerd-runc.service` | Ambos | Instala containerd, runc, kubelet, kubeadm, kubectl y etcd vía `rpm-ostree` |
+| `enable-services.service` | Ambos | Enmascara `systemd-resolved`, configura DNS local, aplica sysctl |
+| `init-k8s-master.service` | Master | Inicializa el clúster (`kubeadm init`) o lo une como control-plane adicional |
+| `init-k8s-worker.service` | Worker | Une el nodo como worker estándar (`kubeadm join`) |
+| `install-cilium.service` | Master (1)| Instala Cilium CNI vía Helm (sólo se ejecuta en el primer master) |
+
+### Almacenamiento en Nodos
 
 | Disco | Dispositivo | Uso |
 |-------|-------------|-----|
@@ -216,6 +217,7 @@ Cada nodo se configura en el primer boot mediante dos archivos Ignition:
 | containerd | 2.x (incluido en FCOS) |
 | runc | 1.x (incluido en FCOS) |
 | Cilium CNI | 1.14.0 |
+| etcd / etcdctl | (instalado vía rpm-ostree) |
 | HAProxy | (incluido en FCOS LB) |
 | BIND DNS | (incluido en FCOS LB) |
 
