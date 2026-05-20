@@ -138,6 +138,16 @@ startVM:
 		FIRST_MASTER=$$(echo $(HOSTNAME_MASTER) | tr -d '"' | awk '{print $$1}'); \
 		NUM_MASTERS=$$(echo $(DATA_MASTER) | wc -w); \
 		./startVM.sh --nameVM "$$HOSTNAME" --role worker --prefixButaneIgnitionName preconfig --IPAddressVM "$$IPADDRESS" --maskVM "$(MASK_WORKER)" --gatewayVM "$(GATEWAY_WORKER)" --dnsVM "$${DNS_TMP// /;}"  --httpProtocolIgnition "$(HTTP_PROTO_IGNITION)" --IPAddressHttpIgnition "$(HTTP_IP_IGNITION)" --httpPortIgnition "$(HTTP_PORT_IGNITION)" --HTTP_PROTO_CA "$(HTTP_PROTO_CA)" --HTTP_PORT_CA "$(HTTP_PORT_CA)" --OVAFILE "$(OVA_FILE)" --k8s_version "$(K8S_VERSION)" --endpointIP "$(ENDPOINT_IP)" --endpointHost "$(ENDPOINT_HOST)" --endpointPort "$(ENDPOINT_PORT)" --prefixMaster "$(PREFIX_MASTER)" --authorizationUser "$(HTTP_USER_IGNITION)" --authorizationPassword "$(HTTP_PASSWORD_IGNITION)" --kubeadmToken "$$KUBEADM_TOKEN_DYN" --certificateKey "$$CERTIFICATE_KEY_DYN" --firstMaster "$$FIRST_MASTER" --ciliumVersion "$(CILIUM_VERSION)" --numMasters "$$NUM_MASTERS" --SUBNET_POD "$(SUBNET_POD)" --SUBNET_SERVICE "$(SUBNET_SERVICE)"; \
+	done; \
+	FIRST_MASTER=$$(echo $(HOSTNAME_MASTER) | tr -d '"' | awk '{print $$1}'); \
+	for WORKER in $(DATA_WORKER); do \
+		HOSTNAME=$$(echo $$WORKER | cut -d: -f1); \
+		echo "Waiting for worker $$HOSTNAME to join the cluster to label it..."; \
+		while ! ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ../../keys/myKeys -l devopsadmin $$FIRST_MASTER "kubectl get node $$HOSTNAME > /dev/null 2>&1"; do \
+			sleep 10; \
+		done; \
+		echo "Labeling $$HOSTNAME as worker..."; \
+		ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ../../keys/myKeys -l devopsadmin $$FIRST_MASTER "kubectl label node $$HOSTNAME node-role.kubernetes.io/worker=worker --overwrite"; \
 	done
 	
 startLB:

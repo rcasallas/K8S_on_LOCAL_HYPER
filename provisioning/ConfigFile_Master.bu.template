@@ -70,6 +70,10 @@ storage:
             chown devopsadmin:devopsadmin /var/home/devopsadmin/.kube/config
             mkdir -p /root/.kube
             cp -i /etc/kubernetes/admin.conf /root/.kube/config
+            
+            # Configure etcdctl alias for easy administration
+            echo 'alias etcdctl="ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key"' >> /root/.bashrc
+            echo 'alias etcdctl="ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key"' >> /var/home/devopsadmin/.bashrc
           elif [ "${TYPE_NODE}" == "worker" ]; then
             echo "Waiting for API Server at ${ENDPOINT_HOST}:${ENDPOINT_PORT}..."
             while ! curl -s -k https://${ENDPOINT_HOST}:${ENDPOINT_PORT}/healthz; do
@@ -242,7 +246,7 @@ storage:
           /usr/bin/rpm-ostree refresh-md
     
           # Install base components
-          /usr/bin/rpm-ostree install containerd runc kubelet kubeadm kubectl conntrack cri-tools kubernetes-cni helm
+          /usr/bin/rpm-ostree install containerd runc kubelet kubeadm kubectl conntrack cri-tools kubernetes-cni helm etcd
 
           # Generar configuración base de containerd
           mkdir -p /etc/containerd/
