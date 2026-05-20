@@ -43,7 +43,3 @@ CILIUM_VERSION := 1.14.0 # version of the Cilium CNI
 #Subnet Service
 SUBNET_POD := 10.244.0.0/16
 SUBNET_SERVICE := 10.96.0.0/12
-
-# Kubeadm Bootstrap Tokens
-KUBEADM_TOKEN := "abcdef.0123456789abcdef"
-CERTIFICATE_KEY := "382420d12f74b1c2f2834174c7fda59898be760552aaab9ef5473be43f07bf0c"

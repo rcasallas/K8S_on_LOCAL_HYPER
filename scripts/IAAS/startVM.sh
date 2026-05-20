@@ -47,7 +47,7 @@ function pause(){
 }
 
 
-function CreateMaster(){
+function CreateNode(){
  
 
     # 1. Definición de variables
@@ -115,6 +115,8 @@ function CreateMaster(){
     KUBEADM_TOKEN=${23}
     CERTIFICATE_KEY=${24}
     FIRST_MASTER_HOSTNAME=${25}
+    CILIUM_VERSION=${26}
+    NUM_MASTERS=${27}
 
     # get the home directory of the user running the script
     homeDir=$(getent passwd $USER | cut -d: -f6)
@@ -264,7 +266,7 @@ function CreateMaster(){
 
     export K8S_VERSION="$K8S_VERSION"
     export K8S_HOSTNAME="$nameVM"
-
+    export TYPE_NODE="$role"
     export IP_ADDRESS_VM="$IPAddressVM"
     export MASK_VM="$maskVM"
     export GATEWAY_VM="$gatewayVM"
@@ -279,6 +281,8 @@ function CreateMaster(){
     export KUBEADM_TOKEN="$KUBEADM_TOKEN"
     export CERTIFICATE_KEY="$CERTIFICATE_KEY"
     export FIRST_MASTER_HOSTNAME="$FIRST_MASTER_HOSTNAME"
+    export CILIUM_VERSION="$CILIUM_VERSION"
+    export NUM_MASTERS="$NUM_MASTERS"
     
     export INIT_IGNITION_FILE_FULL="$INIT_IGNITION_FILE_FULL"
 
@@ -404,6 +408,8 @@ while [[ $# -gt 0 ]]; do
     --kubeadmToken)               KUBEADM_TOKEN="$2"; shift 2 ;;
     --certificateKey)             CERTIFICATE_KEY="$2"; shift 2 ;;
     --firstMaster)                FIRST_MASTER_HOSTNAME="$2"; shift 2 ;;
+    --ciliumVersion)              CILIUM_VERSION="$2"; shift 2 ;;
+    --numMasters)                 NUM_MASTERS="$2"; shift 2 ;;
     -h|--help)                    usage; ayuda; exit 0;;
     *) echo "Unknown option: $1"; usage; exit 1 ;;       
   esac
@@ -411,7 +417,6 @@ done
 
 case $ROLE in
     "") echo "Error: --nameVM is required"; usage; exit 1 ;;
-    "master")  CreateMaster "$NAME_VM" "$ROLE" "$PREFIX_IGNITION" "$IP_VM" "$MASK_VM" "$GW_VM" "$DNS_VM" "$HTTP_PROTO" "$IP_HTTP" "$HTTP_PORT" "$HTTP_PROTO_CA" "$HTTP_PORT_CA" "$OVA_FILE" "$K8S_VERSION" "$ENDPOINT_IP" "$ENDPOINT_HOST" "$ENDPOINT_PORT" "$PREFIX_MASTER" "$AUTHORIZATION_USER" "$AUTHORIZATION_PASSWORD" "$SUBNET_POD" "$SUBNET_SERVICE" "$KUBEADM_TOKEN" "$CERTIFICATE_KEY" "$FIRST_MASTER_HOSTNAME";;
-    "worker")  echo "Worker VM creation not implemented yet" ;;
+    "master"|"worker")  CreateNode "$NAME_VM" "$ROLE" "$PREFIX_IGNITION" "$IP_VM" "$MASK_VM" "$GW_VM" "$DNS_VM" "$HTTP_PROTO" "$IP_HTTP" "$HTTP_PORT" "$HTTP_PROTO_CA" "$HTTP_PORT_CA" "$OVA_FILE" "$K8S_VERSION" "$ENDPOINT_IP" "$ENDPOINT_HOST" "$ENDPOINT_PORT" "$PREFIX_MASTER" "$AUTHORIZATION_USER" "$AUTHORIZATION_PASSWORD" "$SUBNET_POD" "$SUBNET_SERVICE" "$KUBEADM_TOKEN" "$CERTIFICATE_KEY" "$FIRST_MASTER_HOSTNAME" "$CILIUM_VERSION" "$NUM_MASTERS";;
     *) echo "Unknown role: $role"; usage; exit 1 ;;
 esac

@@ -22,23 +22,109 @@ storage:
   directories:
     - path: /var/lib/kubernetes/containerd
       mode: 0755
+    - path: /var/lib/kubernetes/kubelet
+      mode: 0755
   links:
+    # 1. setting the containerd and kubelet directories
     - path: /var/lib/containerd
       target: /var/lib/kubernetes/containerd
       overwrite: true
     - path: /var/lib/kubelet
       target: /var/lib/kubernetes/kubelet
       overwrite: true
-
-
   files:
-    # 1. setting the hostname
+    # 1. setting the k8s-bootstrap script (this script is used to initialize the Kubernetes cluster)
+    - path: /usr/local/bin/k8s-bootstrap.sh
+      mode: 0755
+      contents:
+        inline: |
+          #!/bin/bash
+          set -e
+          
+          # Fix for Cilium CNI on Fedora CoreOS (immutable /usr)
+          if [ -L /opt/cni ]; then
+            rm -f /opt/cni
+            mkdir -p /opt/cni/bin
+            cp -a /usr/lib/opt/cni/bin/* /opt/cni/bin/ || true
+          fi
+
+          if [ "${TYPE_NODE}" == "master" ]; then
+            if [ "${K8S_HOSTNAME}" == "${FIRST_MASTER_HOSTNAME}" ]; then
+              echo "Initializing Kubernetes Master 01..."
+              kubeadm init --config=/etc/kubernetes/kubeadm-config.yaml --upload-certs | tee /var/lib/kubernetes/kubeadm-init.out
+            else
+              echo "Waiting for API Server at ${ENDPOINT_HOST}:${ENDPOINT_PORT}..."
+              while ! curl -s -k https://${ENDPOINT_HOST}:${ENDPOINT_PORT}/healthz; do
+                sleep 10
+              done
+              echo "Joining Kubernetes Cluster as Master..."
+              kubeadm join ${ENDPOINT_HOST}:${ENDPOINT_PORT} \
+                --token ${KUBEADM_TOKEN} \
+                --discovery-token-unsafe-skip-ca-verification \
+                --control-plane --certificate-key ${CERTIFICATE_KEY} \
+                --apiserver-advertise-address=${IP_ADDRESS_VM}
+            fi
+            
+            mkdir -p /var/home/devopsadmin/.kube 
+            cp -i /etc/kubernetes/admin.conf /var/home/devopsadmin/.kube/config 
+            chown devopsadmin:devopsadmin /var/home/devopsadmin/.kube/config
+            mkdir -p /root/.kube
+            cp -i /etc/kubernetes/admin.conf /root/.kube/config
+          elif [ "${TYPE_NODE}" == "worker" ]; then
+            echo "Waiting for API Server at ${ENDPOINT_HOST}:${ENDPOINT_PORT}..."
+            while ! curl -s -k https://${ENDPOINT_HOST}:${ENDPOINT_PORT}/healthz; do
+              sleep 10
+            done
+            echo "Joining Kubernetes Cluster as Worker..."
+            kubeadm join ${ENDPOINT_HOST}:${ENDPOINT_PORT} \
+              --token ${KUBEADM_TOKEN} \
+              --discovery-token-unsafe-skip-ca-verification
+          fi
+    # 2. setting the install-cilium script (this script is used to install Cilium CNI)
+    - path: /usr/local/bin/install-cilium.sh
+      mode: 0755
+      contents:
+        inline: |
+          #!/bin/bash
+          set -e
+          if [ "${K8S_HOSTNAME}" != "${FIRST_MASTER_HOSTNAME}" ]; then
+            echo "Cilium is only installed by the first master node."
+            exit 0
+          fi
+
+          export KUBECONFIG=/etc/kubernetes/admin.conf
+          export HOME=/root
+          echo "Waiting for Kubernetes API..."
+          until kubectl get nodes; do
+            sleep 5
+          done
+
+          echo "Waiting for all ${NUM_MASTERS} master nodes to join the cluster..."
+          while [ "$(kubectl get nodes --selector='node-role.kubernetes.io/control-plane' --no-headers 2>/dev/null | wc -l)" -lt "${NUM_MASTERS}" ]; do
+            echo "Currently $(kubectl get nodes --selector='node-role.kubernetes.io/control-plane' --no-headers 2>/dev/null | wc -l) out of ${NUM_MASTERS} master nodes joined. Waiting..."
+            sleep 10
+          done
+          echo "All ${NUM_MASTERS} master nodes are present!"
+
+          echo "Installing Cilium CNI..."
+          helm repo add cilium https://helm.cilium.io/
+          helm repo update
+          helm install cilium cilium/cilium \
+            --version ${CILIUM_VERSION} \
+            --namespace kube-system \
+            --set ipam.mode=kubernetes \
+            --set k8sServiceHost=${ENDPOINT_HOST} \
+            --set k8sServicePort=${ENDPOINT_PORT}
+          
+          echo "Cilium installed successfully."
+
+    # 3. setting the hostname
     - path: /etc/hostname
       overwrite: true
       contents:
         inline: "${K8S_HOSTNAME}"
 
-    # 2. Disable Zincati Auto-Updates
+    # 4. Disable Zincati Auto-Updates
     - path: /etc/zincati/config.d/90-disable-auto-updates.toml
       overwrite: true
       contents:
@@ -46,7 +132,7 @@ storage:
           [updates]
           enabled = false
 
-    # 3. Disable IPv6        
+    # 5. Disable IPv6        
     - path: /etc/sysctl.d/10-disable-ipv6.conf
       overwrite: true
       contents:
@@ -56,7 +142,7 @@ storage:
           net.ipv6.conf.default.disable_ipv6 = 1
           net.ipv6.conf.enp0s4.disable_ipv6 = 1
 
-    # 4. Configuración de Repositorio K8s ${K8S_VERSION}
+    # 6. Configuración de Repositorio K8s ${K8S_VERSION}
     - path: /etc/yum.repos.d/kubernetes.repo
       overwrite: true
       mode: 0644
@@ -69,7 +155,7 @@ storage:
           gpgcheck=1
           gpgkey=https://pkgs.k8s.io/core:/stable:/v${K8S_VERSION}/rpm/repodata/repomd.xml.key
 
-    # 5. Configuración de Red Estática
+    # 7. Configuración de Red Estática
     - path: /etc/NetworkManager/system-connections/enp0s8.nmconnection
       overwrite: true    
       mode: 0600
@@ -84,7 +170,7 @@ storage:
           dns=${DNS_VM};
           method=manual
 
-    # 6. Configuración de Red Estática Internet
+    # 8. Configuración de Red Estática Internet
     - path: /etc/NetworkManager/system-connections/enp0s3.nmconnection
       overwrite: true  
       mode: 0600
@@ -97,19 +183,25 @@ storage:
           [ipv4]
           method=auto
 
-    # 7. Configuración de resolved.conf
-    - path: /etc/systemd/resolved.conf
+    # 9. Deshabilitar gestión de DNS en NetworkManager
+    - path: /etc/NetworkManager/conf.d/90-dns-none.conf
       overwrite: true
       mode: 0644
       contents:
         inline: |
-          [Resolve]
-          DNS=${ENDPOINT_IP}
-          Domains=${PREFIX_MASTER}
-          DNSSEC=no
-          FallbackDNS=
+          [main]
+          dns=none
 
-    # 8. Load modules for K8S
+    # 10. Configuración estática de resolv.conf
+    - path: /etc/resolv.conf
+      overwrite: true
+      mode: 0644
+      contents:
+        inline: |
+          nameserver ${ENDPOINT_IP}
+          search ${PREFIX_MASTER}
+
+    # 11. Load modules for K8S
     - path: /etc/modules-load.d/k8s.conf
       overwrite: true
       mode: 0644
@@ -118,7 +210,7 @@ storage:
           overlay
           br_netfilter
     
-    # 9. Configure sysctl params for Kubernetes networking
+    # 12. Configure sysctl params for Kubernetes networking
     - path: /etc/sysctl.d/k8s.conf
       overwrite: true
       mode: 0644
@@ -128,7 +220,7 @@ storage:
           net.bridge.bridge-nf-call-ip6tables = 1
           net.ipv4.ip_forward                 = 1
 
-    # 10. Script de instalación de containerd y runc
+    # 13. Script de instalación de containerd y runc
     - path: /usr/local/bin/install-containerd-runc.sh
       mode: 0755
       overwrite: true
@@ -150,7 +242,7 @@ storage:
           /usr/bin/rpm-ostree refresh-md
     
           # Install base components
-          /usr/bin/rpm-ostree install containerd runc kubelet kubeadm kubectl conntrack cri-tools kubernetes-cni
+          /usr/bin/rpm-ostree install containerd runc kubelet kubeadm kubectl conntrack cri-tools kubernetes-cni helm
 
           # Generar configuración base de containerd
           mkdir -p /etc/containerd/
@@ -168,20 +260,6 @@ storage:
           # Marcar instalación como completada
           touch /var/lib/containerd-runc-installed
 
-    # 11. kubeadm-config.yaml
-    - path: /etc/kubernetes/kubeadm-config.yaml
-      overwrite: true
-      contents:
-        inline: |
-          apiVersion: kubeadm.k8s.io/v1beta4 
-          kind: ClusterConfiguration 
-          kubernetesVersion: v1.32.11 
-          controlPlaneEndpoint: "haproxy.training.lab:6443" 
-          networking: 
-            podSubnet: 10.244.0.0/16 
-            serviceSubnet: 10.96.0.0/12 
-          --- 
-          apiVersion: kubelet.config.k8s.io/v1beta1 kind: KubeletConfiguration cgroupDriver: systemd EOF          
 
 systemd:
   units:
@@ -201,7 +279,6 @@ systemd:
         RemainAfterExit=yes
         # Deshabilitar systemd-resolved y sus sockets (varlink + monitor) para evitar conflictos con DNS local
         ExecStart=/usr/bin/systemctl mask --now systemd-resolved.service systemd-resolved-varlink.socket systemd-resolved-monitor.socket
-        ExecStart=/usr/bin/bash -c "rm -f /etc/resolv.conf && echo 'nameserver ${ENDPOINT_IP}' > /etc/resolv.conf && echo 'search ${PREFIX_MASTER}' >> /etc/resolv.conf"
         ExecStart=/usr/sbin/sysctl --system # setting the network parameters for K8S
         # Vincular las opciones personalizadas de Ubuntu BIND para que Fedora Named las lea
         ExecStart=/usr/bin/ln -sf /etc/bind/named.conf.options /etc/named.conf
@@ -280,12 +357,58 @@ systemd:
         [Service]
         Type=oneshot
         RemainAfterExit=yes
+        ExecCondition=/bin/bash -c '[ "${TYPE_NODE}" == "master" ]'
         ExecStart=/bin/bash -c "kubeadm config print init-defaults > /etc/kubernetes/kubeadm-config.yaml"
-        ExecStart=/usr/bin/sed -i 's/kind: ClusterConfiguration/kind: ClusterConfiguration\\ncontrolPlaneEndpoint: ${ENDPOINT_IP}:6443/' /etc/kubernetes/kubeadm-config.yaml
+        ExecStart=/usr/bin/sed -i 's/name: node/name: ${K8S_HOSTNAME}/' /etc/kubernetes/kubeadm-config.yaml
+        ExecStart=/usr/bin/sed -i 's/token: abcdef.0123456789abcdef/token: ${KUBEADM_TOKEN}/' /etc/kubernetes/kubeadm-config.yaml
+        ExecStart=/usr/bin/sed -i 's/kind: ClusterConfiguration/kind: ClusterConfiguration\\ncontrolPlaneEndpoint: ${ENDPOINT_HOST}:${ENDPOINT_PORT}/' /etc/kubernetes/kubeadm-config.yaml
         ExecStart=/usr/bin/sed -i 's/dnsDomain: cluster.local/dnsDomain: ${PREFIX_MASTER}/' /etc/kubernetes/kubeadm-config.yaml
-        ExecStart=/usr/bin/sed -i 's|serviceSubnet: 10.96.0.0/12|serviceSubnet: 10.96.0.0/12\\n  podSubnet: 10.244.0.0/16|' /etc/kubernetes/kubeadm-config.yaml
+        ExecStart=/usr/bin/sed -i 's/advertiseAddress: 1.2.3.4/advertiseAddress: ${IP_ADDRESS_VM}/' /etc/kubernetes/kubeadm-config.yaml
+        ExecStart=/usr/bin/sed -i 's|serviceSubnet: 10.96.0.0/12|serviceSubnet: ${SUBNET_SERVICE}\\n  podSubnet: ${SUBNET_POD}|' /etc/kubernetes/kubeadm-config.yaml
+        ExecStart=/usr/bin/sed -i 's|controllerManager: {}|controllerManager:\\n  extraArgs:\\n  - name: flex-volume-plugin-dir\\n    value: "/var/lib/kubelet/volumeplugins"|' /etc/kubernetes/kubeadm-config.yaml
+        ExecStart=/usr/bin/sed -i 's/kind: InitConfiguration/kind: InitConfiguration\\ncertificateKey: ${CERTIFICATE_KEY}/' /etc/kubernetes/kubeadm-config.yaml
+        ExecStart=/usr/local/bin/k8s-bootstrap.sh
         ExecStartPost=/bin/touch /var/lib/k8s-init-master-enabled
  
         [Install]
         WantedBy=multi-user.target
         
+    # 7. init K8s worker service
+    - name: init-k8s-worker.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=init K8s worker
+        Wants=network-online.target
+        After=network-online.target enable-kubelet-crictl.service
+        ConditionPathExists=!/var/lib/k8s-init-worker-enabled
+
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecCondition=/bin/bash -c '[ "${TYPE_NODE}" == "worker" ]'
+        ExecStart=/usr/local/bin/k8s-bootstrap.sh
+        ExecStartPost=/bin/touch /var/lib/k8s-init-worker-enabled
+ 
+        [Install]
+        WantedBy=multi-user.target
+
+    # 8. Installing Cilium
+    - name: install-cilium.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Installing Cilium
+        Wants=network-online.target
+        After=network-online.target init-k8s-master.service
+        ConditionPathExists=!/var/lib/cilium-installed
+
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecCondition=/bin/bash -c '[ "${TYPE_NODE}" == "master" ]'
+        ExecStart=/usr/local/bin/install-cilium.sh
+        ExecStartPost=/bin/touch /var/lib/cilium-installed
+
+        [Install]
+        WantedBy=multi-user.target
