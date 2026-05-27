@@ -122,6 +122,162 @@ storage:
           
           echo "Cilium installed successfully."
 
+    # 2.5 setting the create-k8s-user script
+    - path: /usr/local/bin/create-k8s-user.sh
+      mode: 0755
+      contents:
+        inline: |
+          #!/bin/bash
+          set -e
+          
+          if [ "\$#" -lt 1 ] || [ "\$#" -gt 2 ]; then
+              echo "Uso: \$0 <nombre-usuario> [grupo]"
+              echo "Ejemplo: \$0 pedro.dev developers"
+              exit 1
+          fi
+          
+          USER=\$1
+          GROUP=\${2:-""}
+          
+          echo "========================================================="
+          echo "Creando credenciales K8s para el usuario: \$USER"
+          if [ -n "\$GROUP" ]; then
+              echo "Grupo asignado: \$GROUP"
+              SUBJ="/CN=\$USER/O=\$GROUP"
+          else
+              SUBJ="/CN=\$USER"
+          fi
+          echo "========================================================="
+          
+          # Directorio temporal seguro
+          TMP_DIR=\$(mktemp -d)
+          trap "rm -rf \$TMP_DIR" EXIT
+          
+          # 1. Generar llave privada
+          echo "[1/5] Generando llave privada (RSA 2048)..."
+          openssl genrsa -out "\$TMP_DIR/\$USER.key" 2048 2>/dev/null
+          
+          # 2. Generar CSR
+          echo "[2/5] Generando Certificate Signing Request (CSR)..."
+          openssl req -new -key "\$TMP_DIR/\$USER.key" -out "\$TMP_DIR/\$USER.csr" -subj "\$SUBJ" 2>/dev/null
+          
+          # 3. Crear CSR en Kubernetes
+          echo "[3/5] Enviando solicitud criptográfica a Kubernetes..."
+          CSR_NAME="\${USER}-access-\$(date +%s)"
+          CSR_BASE64=\$(cat "\$TMP_DIR/\$USER.csr" | base64 | tr -d '\n')
+          
+          cat <<EOF | kubectl apply -f -
+          apiVersion: certificates.k8s.io/v1
+          kind: CertificateSigningRequest
+          metadata:
+            name: \$CSR_NAME
+          spec:
+            request: \$CSR_BASE64
+            signerName: kubernetes.io/kube-apiserver-client
+            expirationSeconds: 31536000  # Certificado válido por 1 año
+            usages:
+            - client auth
+          EOF
+          
+          # 4. Aprobar la solicitud
+          echo "[4/5] Aprobando el certificado en el clúster..."
+          kubectl certificate approve "\$CSR_NAME" > /dev/null
+          
+          # Extraer el certificado firmado
+          echo "      Descargando certificado firmado..."
+          for i in {1..10}; do
+              CERT=\$(kubectl get csr "\$CSR_NAME" -o jsonpath='{.status.certificate}')
+              if [ -n "\$CERT" ]; then
+                  echo "\$CERT" | base64 -d > "\$TMP_DIR/\$USER.crt"
+                  break
+              fi
+              sleep 1
+          done
+          
+          if [ ! -f "\$TMP_DIR/\$USER.crt" ]; then
+              echo "Error: Kubernetes no devolvió el certificado firmado a tiempo."
+              exit 1
+          fi
+          
+          # 5. Generar Kubeconfig
+          echo "[5/5] Construyendo archivo kubeconfig portátil..."
+          CLUSTER_NAME=\$(kubectl config view --minify -o jsonpath='{.clusters[0].name}')
+          CLUSTER_SERVER=\$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
+          CLUSTER_CA=\$(kubectl config view --minify --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')
+          
+          KUBECONFIG_FILE="./\${USER}-kubeconfig.yaml"
+          
+          cat <<EOF > "\$KUBECONFIG_FILE"
+          apiVersion: v1
+          kind: Config
+          clusters:
+          - cluster:
+              certificate-authority-data: \$CLUSTER_CA
+              server: \$CLUSTER_SERVER
+            name: \$CLUSTER_NAME
+          contexts:
+          - context:
+              cluster: \$CLUSTER_NAME
+              user: \$USER
+            name: \${USER}-context
+          current-context: \${USER}-context
+          users:
+          - name: \$USER
+            user:
+              client-certificate-data: \$(cat "\$TMP_DIR/\$USER.crt" | base64 | tr -d '\n')
+              client-key-data: \$(cat "\$TMP_DIR/\$USER.key" | base64 | tr -d '\n')
+          EOF
+          
+          echo "========================================================="
+          echo "¡Completado exitosamente!"
+          echo "Archivo entregable generado: \$KUBECONFIG_FILE"
+          echo ""
+          echo "Instrucciones para probar:"
+          echo "1. Mueve el archivo a tu máquina o envíaselo al usuario."
+          echo "2. El usuario puede conectarse haciendo: kubectl --kubeconfig=\$KUBECONFIG_FILE get pods"
+          echo "========================================================="
+
+    # 2.6 setting the create-namespace-admin script
+    - path: /usr/local/bin/create-namespace-admin.sh
+      mode: 0755
+      contents:
+        inline: |
+          #!/bin/bash
+          set -e
+          
+          # Validar argumentos
+          if [ "\$#" -ne 2 ]; then
+              echo "Uso: \$0 <nombre-namespace> <nombre-usuario>"
+              echo "Ejemplo: \$0 dev-environment juan.perez"
+              exit 1
+          fi
+          
+          NAMESPACE=\$1
+          USER=\$2
+          
+          echo "========================================================="
+          echo "Creando Namespace: \$NAMESPACE"
+          echo "Otorgando rol 'admin' al usuario: \$USER"
+          echo "========================================================="
+          
+          # 1. Crear el namespace
+          echo "[1/2] Creando el Namespace..."
+          kubectl create namespace "\$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+          
+          # 2. Crear el RoleBinding
+          # Usamos el ClusterRole 'admin' (predefinido en K8s) pero lo atamos SOLO a este namespace
+          echo "[2/2] Creando el RoleBinding..."
+          kubectl create rolebinding "\${USER}-admin-binding" \
+            --clusterrole=admin \
+            --user="\$USER" \
+            --namespace="\$NAMESPACE" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          
+          echo "========================================================="
+          echo "¡Completado!"
+          echo "El usuario '\$USER' ahora es administrador del namespace '\$NAMESPACE'."
+          echo "Puedes verificarlo con: kubectl get rolebinding -n \$NAMESPACE"
+
     # 3. setting the hostname
     - path: /etc/hostname
       overwrite: true
