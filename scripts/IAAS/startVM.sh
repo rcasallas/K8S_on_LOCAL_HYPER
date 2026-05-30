@@ -257,6 +257,10 @@ function CreateNode(){
     export MASK_VM="$maskVM"
     export GATEWAY_VM="$gatewayVM"
     export DNS_VM="$dnsVM"
+    export IP_ADDRESS_EXT="$IP_EXT"
+    export MASK_EXT="$MASK_EXT"
+    export GATEWAY_EXT="$GATEWAY_EXT"
+    export DNS_EXT="$DNS_EXT"
     
     export ENDPOINT_IP="$ENDPOINT_IP"
     export ENDPOINT_HOST="$ENDPOINT_HOST"
@@ -376,6 +380,10 @@ while [[ $# -gt 0 ]]; do
     -m|--maskVM)                  MASK_VM="$2"; shift 2 ;;
     -g|--gatewayVM)               GW_VM="$2"; shift 2 ;;
     -d|--dnsVM)                   DNS_VM="$2"; shift 2 ;;
+    -I|--ipExt)                   IP_EXT="$2"; shift 2 ;;
+    -M|--maskExt)                 MASK_EXT="$2"; shift 2 ;;
+    -G|--gatewayExt)              GATEWAY_EXT="$2"; shift 2 ;;
+    -X|--dnsExt)                  DNS_EXT="$2"; shift 2 ;;
     --kubeadmToken)               KUBEADM_TOKEN="$2"; shift 2 ;;
     --certificateKey)             CERTIFICATE_KEY="$2"; shift 2 ;;
     --firstMaster)                FIRST_MASTER_HOSTNAME="$2"; shift 2 ;;

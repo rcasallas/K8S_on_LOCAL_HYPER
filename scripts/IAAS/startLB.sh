@@ -261,6 +261,10 @@ function createLB(){
     export gatewayVM=$gatewayVM
     export dnsVM=$dnsVM
     export dnsRelay=$dnsRelay
+    export IP_ADDRESS_EXT=$IP_EXT
+    export MASK_EXT=$MASK_EXT
+    export GATEWAY_EXT=$GATEWAY_EXT
+    export DNS_EXT=$DNS_EXT
     export prefixLB=$prefixLB
     export keepalivedPriority=$keepalivedPriority
     export keepalivedNic=$keepalivedNic
@@ -330,6 +334,10 @@ while [[ $# -gt 0 ]]; do
     -d|--dnsVM)                   DNS_VM="$2"; shift 2 ;;
     -D|--dnsRelay)                DNS_RELAY="$2"; shift 2 ;;
     -P|--keepalivedPriority)      KEEPALIVED_PRIO="$2"; shift 2 ;;
+    -I|--ipExt)                   IP_EXT="$2"; shift 2 ;;
+    -M|--maskExt)                 MASK_EXT="$2"; shift 2 ;;
+    -G|--gatewayExt)              GATEWAY_EXT="$2"; shift 2 ;;
+    -X|--dnsExt)                  DNS_EXT="$2"; shift 2 ;;
     -h|--help)                    usage; ayuda; exit 0;;
     *) echo "Unknown option: $1"; usage; exit 1 ;;       
   esac

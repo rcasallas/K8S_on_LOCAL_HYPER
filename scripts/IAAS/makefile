@@ -50,12 +50,15 @@ generate-hosts:
 	@echo "Archivo hosts generado correctamente."
 
 deleteLB:
+	@echo "HOSTNAME_LB: $(HOSTNAME_LB)"
 	@hostname_lb_clean=$$(echo $(HOSTNAME_LB) | tr -d '"') ; \
 	for HOSTNAME in $$hostname_lb_clean; do \
 	echo "$$HOSTNAME - HOSTNAME"; \
 	./deleteLB.sh "$$HOSTNAME"; \
 	done
 deleteVM:
+	@echo "DATA_MASTER: $(DATA_MASTER)"
+	@echo "DATA_WORKER: $(DATA_WORKER)"
 	@for MASTER in $(DATA_MASTER); do \
 		HOSTNAME=$$(echo $$MASTER | cut -d: -f1); \
 		IPADDRESS=$$(echo $$MASTER | cut -d: -f2); \
@@ -78,18 +81,20 @@ startVM:
 	for MASTER in $(DATA_MASTER); do \
 		HOSTNAME=$$(echo $$MASTER | cut -d: -f1); \
 		IPADDRESS=$$(echo $$MASTER | cut -d: -f2); \
+		IP_EXT=$$(echo $$MASTER | cut -d: -f3); \
 		DNS_TMP="$(DNS_MASTER)"; \
 		FIRST_MASTER=$$(echo $(HOSTNAME_MASTER) | tr -d '"' | awk '{print $$1}'); \
 		NUM_MASTERS=$$(echo $(DATA_MASTER) | wc -w); \
-		./startVM.sh --nameVM "$$HOSTNAME" --role master --IPAddressVM "$$IPADDRESS" --maskVM "$(MASK_MASTER)" --gatewayVM "$(GATEWAY_MASTER)" --dnsVM "$${DNS_TMP// /;}" --kubeadmToken "$$KUBEADM_TOKEN_DYN" --certificateKey "$$CERTIFICATE_KEY_DYN" --firstMaster "$$FIRST_MASTER" --numMasters "$$NUM_MASTERS" ; \
+		./startVM.sh --nameVM "$$HOSTNAME" --role master --IPAddressVM "$$IPADDRESS" --maskVM "$(MASK_MASTER)" --gatewayVM "$(GATEWAY_MASTER)" --dnsVM "$${DNS_TMP// /;}" --kubeadmToken "$$KUBEADM_TOKEN_DYN" --certificateKey "$$CERTIFICATE_KEY_DYN" --firstMaster "$$FIRST_MASTER" --numMasters "$$NUM_MASTERS" --ipExt "$$IP_EXT" --maskExt "$(MASK_EXT)" --gatewayExt "$(GATEWAY_EXT)" --dnsExt "$(DNS_EXT)" ; \
 	done; \
 	for WORKER in $(DATA_WORKER); do \
 		HOSTNAME=$$(echo $$WORKER | cut -d: -f1); \
 		IPADDRESS=$$(echo $$WORKER | cut -d: -f2); \
+		IP_EXT=$$(echo $$WORKER | cut -d: -f3); \
 		DNS_TMP="$(DNS_WORKER)"; \
 		FIRST_MASTER=$$(echo $(HOSTNAME_MASTER) | tr -d '"' | awk '{print $$1}'); \
 		NUM_MASTERS=$$(echo $(DATA_MASTER) | wc -w); \
-		./startVM.sh --nameVM "$$HOSTNAME" --role worker --IPAddressVM "$$IPADDRESS" --maskVM "$(MASK_WORKER)" --gatewayVM "$(GATEWAY_WORKER)" --dnsVM "$${DNS_TMP// /;}" --kubeadmToken "$$KUBEADM_TOKEN_DYN" --certificateKey "$$CERTIFICATE_KEY_DYN" --firstMaster "$$FIRST_MASTER" --numMasters "$$NUM_MASTERS" ; \
+		./startVM.sh --nameVM "$$HOSTNAME" --role worker --IPAddressVM "$$IPADDRESS" --maskVM "$(MASK_WORKER)" --gatewayVM "$(GATEWAY_WORKER)" --dnsVM "$${DNS_TMP// /;}" --kubeadmToken "$$KUBEADM_TOKEN_DYN" --certificateKey "$$CERTIFICATE_KEY_DYN" --firstMaster "$$FIRST_MASTER" --numMasters "$$NUM_MASTERS" --ipExt "$$IP_EXT" --maskExt "$(MASK_EXT)" --gatewayExt "$(GATEWAY_EXT)" --dnsExt "$(DNS_EXT)" ; \
 	done; \
 	FIRST_MASTER_IP=$$(echo $(MASTER_IP) | tr -d '"' | awk '{print $$1}'); \
 	for WORKER in $(DATA_WORKER); do \
@@ -104,9 +109,11 @@ startVM:
 startLB:
 	@hostname_lb_clean=$$(echo $(HOSTNAME_LB) | tr -d '"') ; \
 	ip_lb_clean=$$(echo $(LB_IP) | tr -d '"') ; \
+	ip_ext_clean=$$(echo $(LB_IP_EXT) | tr -d '"') ; \
 	prio_lb_clean=$$(echo $(KEEPALIVED_PRIORITIES) | tr -d '"') ; \
 	hosts=($$hostname_lb_clean) ; \
 	ips=($$ip_lb_clean) ; \
+	ips_ext=($$ip_ext_clean) ; \
 	prios=($$prio_lb_clean) ; \
 	dns_relay=$$(echo $(DNS_RELAY) | tr -d '"' | tr ' ' ';') ; \
 	len=$${#hosts[@]} ; \
@@ -120,7 +127,11 @@ startLB:
 	--gatewayVM "$(GATEWAY_LB)" \
 	--dnsVM "$(DNS_LB)" \
 	--dnsRelay "$$dns_relay" \
-	--keepalivedPriority "$${prios[$$i]}" ; \
+	--keepalivedPriority "$${prios[$$i]}" \
+	--ipExt "$${ips_ext[$$i]}" \
+	--maskExt "$(MASK_EXT)" \
+	--gatewayExt "$(GATEWAY_EXT)" \
+	--dnsExt "$(DNS_EXT)" ; \
 	done
 listNICS:
 	vboxmanage list hostonlyifs
