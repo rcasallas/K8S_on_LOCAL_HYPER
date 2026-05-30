@@ -248,7 +248,7 @@ storage:
           # Validar argumentos
           if [ "\$#" -ne 2 ]; then
               echo "Uso: \$0 <nombre-namespace> <nombre-usuario>"
-              echo "Ejemplo: \$0 dev-environment juan.perez"
+              echo "Ejemplo: \$0 dev-environment juan.duarte"
               exit 1
           fi
           
@@ -341,7 +341,9 @@ storage:
           type=ethernet
           interface-name=enp0s3
           [ipv4]
-          method=auto
+          address=${IP_ADDRESS_EXT}/${MASK_EXT},${GATEWAY_EXT}
+          dns=${DNS_EXT};
+          method=manual
 
     # 9. Deshabilitar gestión de DNS en NetworkManager
     - path: /etc/NetworkManager/conf.d/90-dns-none.conf
