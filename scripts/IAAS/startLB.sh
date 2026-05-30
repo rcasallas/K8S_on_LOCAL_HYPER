@@ -5,34 +5,62 @@
 # DATE: 2026-04-23
 set -e
 
+# Ruta al archivo de configuración
+CONFIG_FILE="CONFIG.mk"
+
+# ------------------------------------------------------------------
+# Función para cargar el archivo de configuración de forma segura
+# ------------------------------------------------------------------
+load_config() {
+    local file="$1"
+    
+    if [[ ! -f "$file" ]]; then
+        echo "Error: El archivo de configuración '$file' no existe." >&2
+        exit 1
+    fi
+
+    echo "Cargando configuraciones desde: $file..."
+    
+    # Lee el archivo línea por línea
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        # 1. Ignorar líneas vacías
+        [[ -z "$line" ]] && continue
+        # 2. Ignorar líneas que comienzan con # (comentarios)
+        [[ "$line" =~ ^# ]] && continue
+        
+        # 3. Validar que la línea tenga el formato CLAVE=VALOR o CLAVE := VALOR
+        if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*:?=[[:space:]]*(.*)$ ]]; then
+            key="${BASH_REMATCH[1]}"
+            val="${BASH_REMATCH[2]}"
+            # Remover comillas dobles si existen alrededor del valor
+            val="${val%\"}"
+            val="${val#\"}"
+            export "$key=$val"
+        else
+            echo "Advertencia: Línea ignorada por formato inválido -> $line" >&2
+        fi
+    done < "$file"
+}
+
+# Ejecutar la función de carga
+load_config "$CONFIG_FILE"
+
 usage() {
-    echo "startLB.sh --nameVM lb-haproxy-01 --role=primary --prefixButaneIgnitionName preconfig --IPAdressVM 192.168.56.100 --maskVM 24 --gatewayVM 192.168.56.1 --dnsVM 8.8.8.8  --dnsRelay 8.8.8.8;4.4.4.4 --prefixLB k8s.local --keepalivedPriority 10 --keepalivedNic enp0s8 --IPAddressHttpIgnition 192.168.56.1 --httpPortIgnition 8001 --OVAFILE fedora-coreos-43.20260316.3.1-virtualbox.x86_64.ova --vip_lb 192.168.56.100 --keepalivedPass "2343sdfdfsdf!230" --configK8S CONFIG.mk"
+    echo "startLB.sh --nameVM lb-haproxy-01 --role primary --IPAddressVM 192.168.56.100 --maskVM 24 --gatewayVM 192.168.56.1 --dnsVM 8.8.8.8 --dnsRelay 8.8.8.8;4.4.4.4 --keepalivedPriority 10"
     echo "Usage: startLB.sh [options]"
     echo ""
     echo "Options:"
     echo "  -n, --nameVM                   Name of the VM"
     echo "  -r, --role                     Role (e.g., primary, secondary)"
-    echo "  -p, --prefixButaneIgnitionName Prefix for ignition file"
     echo "  -i, --IPAddressVM               VM IP Address"
     echo "  -m, --maskVM                   Subnet Mask"
     echo "  -g, --gatewayVM                Gateway IP"
     echo "  -d, --dnsVM                    DNS Server"
     echo "  -D, --dnsRelay                 DNS Relay"
-    echo "  -P, --prefixLB                 Prefix for LB name"
-    echo "  -K, --keepalivedPriority       Keepalived Priority"
-    echo "  -N, --keepalivedNic            Keepalived NIC"
-    echo "  -P, --httpProtocolIgnition     Protocol used by Ignition Server configuration." 
-    echo "  -a, --IPAddressHttpIgnition    HTTP Server IP"
-    echo "  -t, --httpPortIgnition         HTTP Port (Default: 80)"
-    echo "  -o, --OVAFILE                  Path to the OVA file (Default: fedora-coreos-43.20260316.3.1-virtualbox.x86_64.ova)"
-    echo "  -v, --vip_lb                   Virtual IP Address for the Load Balancer"
-    echo "  -k, --keepalivedPass           Keepalived Password"
-    echo "  -C, --configK8S                Configuration file for K8S nodes"
-    echo "  -u, --authorizationUser        Authorization User"
-    echo "  -A, --authorizationPassword    Authorization Password"
-    echo "  -P, --HTTP_PROTO_CA            Protocol used by CA certificate"
-    echo "  -O, --HTTP_PORT_CA             Port for CA certificate"
+    echo "  -P, --keepalivedPriority       Keepalived Priority"
     echo "  -h, --help                     Show this help"
+    echo ""
+    echo "Note: Global configuration (OVA path, ports, VIPs, etc.) is automatically loaded from CONFIG.mk"
     echo ""
 }
 
@@ -48,61 +76,29 @@ function ayuda(){
 
 function createLB(){
 
-    # 1. Definición de variables
-    nameVM=$1
-    #echo "nameVM: $nameVM"
-    role=$2
-    #echo "role: $role"
-    prefixButaneIgnitionName=$3
-    #echo "prefixButaneIgnitionName: $prefixButaneIgnitionName"
-    IPAddressVM=$4
-    #echo "IPAddressVM: $IPAddressVM"
-    maskVM=$5
-    #echo "maskVM: $maskVM"
-    gatewayVM=$6
-    #echo "gatewayVM: $gatewayVM"
-    dnsVM=$7
-    #echo "dnsVM: $dnsVM"
-    dnsRelay=$8
-    #echo "dnsRelay: $dnsRelay"
-    prefixLB=$9
-    #echo "prefixLB: $prefixLB"
-    keepalivedPriority=${10}
-    #echo "keepalivedPriority: $keepalivedPriority"
-    keepalivedNic=${11}
-    #echo "keepalivedNic: $keepalivedNic"
-    httpProtocolIgnition=${12}
-    #echo "httpProtocolIgnition: $httpProtocolIgnition"
-
-    IPAddressHttpIgnition=${13}
-    #echo "IPAddressHttpIgnition: $IPAddressHttpIgnition"
-    
-    httpPortIgnition=${14}
-    #echo "httpPortIgnition: $httpPortIgnition"
-    
-    OVA_FILE=${15}
-    #echo "OVA_FILE: $OVA_FILE"
-    
-    vip_lb=${16}
-    #echo "vip_lb: $vip_lb"	# 
-
-    KEEPALIVED_PASS=${17}
-    #echo "KEEPALIVED_PASS: $KEEPALIVED_PASS"	# 
-
-    configK8S=${18}
-    #echo "configK8S: $configK8S"	# 
-
-    # === 1. PARSE CONFIGURATION FROM CONFIG.mk ===
-    CONFIG_FILE="$configK8S"
-
-    # set the authorization user
-    AUTHORIZATION_USER=${19}
-    # set the authorization password
-    AUTHORIZATION_PASSWORD=${20}
-    # set the protocol for CA certificate
-    HTTP_PROTO_CA=${21}
-    # set the port for CA certificate
-    HTTP_PORT_CA=${22}
+    # 1. Definición de variables mapeadas desde globals de getopt
+    nameVM=$NAME_VM
+    role=$ROLE
+    prefixButaneIgnitionName=${PREFIX_IGNITION:-"preconfig"}
+    IPAddressVM=$IP_VM
+    maskVM=$MASK_VM
+    gatewayVM=$GW_VM
+    dnsVM=$DNS_VM
+    dnsRelay=$DNS_RELAY
+    prefixLB=${PREFIX_LB:-"k8s.local"}
+    keepalivedPriority=$KEEPALIVED_PRIO
+    keepalivedNic=${KEEPALIVED_NIC:-"enp0s8"}
+    httpProtocolIgnition=$HTTP_PROTO_IGNITION
+    IPAddressHttpIgnition=$HTTP_IP_IGNITION
+    httpPortIgnition=$HTTP_PORT_IGNITION
+    OVA_FILE=$OVA_FILE
+    vip_lb=$ENDPOINT_IP
+    KEEPALIVED_PASS=$HTTP_PASSWORD_IGNITION
+    configK8S=$CONFIG_K8S
+    AUTHORIZATION_USER=$HTTP_USER_IGNITION
+    AUTHORIZATION_PASSWORD=$HTTP_PASSWORD_IGNITION
+    HTTP_PROTO_CA=$HTTP_PROTO_CA
+    HTTP_PORT_CA=$HTTP_PORT_CA
 
     if [ ! -f "$CONFIG_FILE" ]; then
         echo "Error: $CONFIG_FILE not found en el directorio actual."
@@ -186,7 +182,9 @@ function createLB(){
     mkdir -p LOGS
     VM_LOG_FILE="$(pwd)/LOGS/${nameVM}_console.log"
     VBoxManage modifyvm "$nameVM" --uart1 0x3F8 4 2>> "$ERROR_FILE"
+    sleep 2
     VBoxManage modifyvm "$nameVM" --uartmode1 file "$VM_LOG_FILE" 2>> "$ERROR_FILE"
+    sleep 2
 
     # === 3. CONFIGURE NETWORK ===
     echo "Configuring Network Interfaces..."
@@ -195,6 +193,7 @@ function createLB(){
         echo "Error crítico: Falló configuración NIC1"
         exit 1
     fi
+    sleep 2
 
     # NIC2: Red Interna host-only (para comunicarse con los workers/masters)
     if ! VBoxManage modifyvm "$nameVM" --nic2 hostonly --hostonlyadapter2 vboxnet0 2>> "$ERROR_FILE"; then
@@ -202,6 +201,7 @@ function createLB(){
         exit 1
     fi
     echo "Redes configuradas correctamente"
+    sleep 2
 
     # === 4. GENERATE IGNITION FILES ===
     provisioningPath=$(realpath ../../provisioning)
@@ -308,11 +308,11 @@ function createLB(){
         echo "Error crítico: Falló inyección Ignition vía GuestProperties"
         exit 1
     fi
-
+    sleep 2
 
     # === 6. START VM ===
     echo "Arrancando VM de Load Balancer..."
-    if ! VBoxManage startvm "$nameVM" 2>> "$ERROR_FILE" >> "$LOG_FILE"; then
+    if ! VBoxManage startvm "$nameVM" --type headless 2>> "$ERROR_FILE" >> "$LOG_FILE"; then
         echo "Error crítico: La VM falló al iniciar"
         exit 1
     else
@@ -324,26 +324,12 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     -n|--nameVM)                  NAME_VM="$2"; shift 2 ;;
     -r|--role)                    ROLE="$2"; shift 2 ;;
-    -p|--prefixButaneIgnitionName) PREFIX_IGNITION="$2"; shift 2 ;;
     -i|--IPAddressVM)              IP_VM="$2"; shift 2 ;;
     -m|--maskVM)                  MASK_VM="$2"; shift 2 ;;
     -g|--gatewayVM)               GW_VM="$2"; shift 2 ;;
     -d|--dnsVM)                   DNS_VM="$2"; shift 2 ;;
     -D|--dnsRelay)                DNS_RELAY="$2"; shift 2 ;;
-    -P|--prefixLB)                PREFIX_LB="$2"; shift 2 ;;
-    -K|--keepalivedPriority)      KEEPALIVED_PRIO="$2"; shift 2 ;;
-    -N|--keepalivedNic)           KEEPALIVED_NIC="$2"; shift 2 ;;
-    --httpProtocolIgnition)       HTTP_PROTO="$2"; shift 2 ;;
-    -a|--IPAddressHttpIgnition)   IP_HTTP="$2"; shift 2 ;;
-    -t|--httpPortIgnition)        HTTP_PORT="$2"; shift 2 ;;
-    -o|--OVAFILE)                 OVA_FILE="$2"; shift 2 ;;
-    -v|--vip_lb)                  VIP_LB="$2"; shift 2 ;;
-    -k| --keepalivedPass)         KEEPALIVED_PASS="$2"; shift 2 ;;
-    -C|--configK8S)               CONFIG_K8S="$2"; shift 2 ;;
-    -u|--authorizationUser)       AUTHORIZATION_USER="$2"; shift 2 ;;
-    -A|--authorizationPassword)   AUTHORIZATION_PASSWORD="$2"; shift 2 ;;
-    -P|--HTTP_PROTO_CA)           HTTP_PROTO_CA="$2"; shift 2 ;;
-    -O|--HTTP_PORT_CA)           HTTP_PORT_CA="$2"; shift 2 ;;
+    -P|--keepalivedPriority)      KEEPALIVED_PRIO="$2"; shift 2 ;;
     -h|--help)                    usage; ayuda; exit 0;;
     *) echo "Unknown option: $1"; usage; exit 1 ;;       
   esac
@@ -355,4 +341,4 @@ if [ -z "$NAME_VM" ]; then
     exit 1
 fi
 
-createLB "$NAME_VM" "$ROLE" "$PREFIX_IGNITION" "$IP_VM" "$MASK_VM" "$GW_VM" "$DNS_VM" "$DNS_RELAY" "$PREFIX_LB" "$KEEPALIVED_PRIO" "$KEEPALIVED_NIC" "$HTTP_PROTO" "$IP_HTTP" "$HTTP_PORT" "$OVA_FILE" "$VIP_LB" "$KEEPALIVED_PASS" "$CONFIG_K8S" "$AUTHORIZATION_USER" "$AUTHORIZATION_PASSWORD" "$HTTP_PROTO_CA" "$HTTP_PORT_CA"
+createLB

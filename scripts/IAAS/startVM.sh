@@ -3,30 +3,64 @@
 # Bash Script: VM Configuration
 #devops engineer: Richard Casallas
 
+# Ruta al archivo de configuración
+CONFIG_FILE="CONFIG.mk"
+
+# ------------------------------------------------------------------
+# Función para cargar el archivo de configuración de forma segura
+# ------------------------------------------------------------------
+load_config() {
+    local file="$1"
+    
+    if [[ ! -f "$file" ]]; then
+        echo "Error: El archivo de configuración '$file' no existe." >&2
+        exit 1
+    fi
+
+    echo "Cargando configuraciones desde: $file..."
+    
+    # Lee el archivo línea por línea
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        # 1. Ignorar líneas vacías
+        [[ -z "$line" ]] && continue
+        # 2. Ignorar líneas que comienzan con # (comentarios)
+        [[ "$line" =~ ^# ]] && continue
+        
+        # 3. Validar que la línea tenga el formato CLAVE=VALOR o CLAVE := VALOR
+        if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*:?=[[:space:]]*(.*)$ ]]; then
+            key="${BASH_REMATCH[1]}"
+            val="${BASH_REMATCH[2]}"
+            # Remover comillas dobles si existen alrededor del valor
+            val="${val%\"}"
+            val="${val#\"}"
+            export "$key=$val"
+        else
+            echo "Advertencia: Línea ignorada por formato inválido -> $line" >&2
+        fi
+    done < "$file"
+}
+
+# Ejecutar la función de carga
+load_config "$CONFIG_FILE"
+
 usage() {
-    echo "startLB.sh --nameVM k8s-master-01 --role=master --prefixButaneIgnitionName preconfig --IPAdressVM 192.168.56.50 --maskVM 24 --gatewayVM 192.168.56.1 --dnsVM 8.8.8.8  --IPAddressHttpIgnition 192.168.56.1 --httpPortIgnition 8001 --OVAFILE fedora-coreos-43.20260316.3.1-virtualbox.x86_64.ova --k8s_version 1.33"
+    echo "startVM.sh --nameVM k8s-master-01 --role master --IPAddressVM 192.168.56.30 --maskVM 24 --gatewayVM 192.168.56.1 --dnsVM 192.168.56.100 --kubeadmToken TOKEN --certificateKey KEY --firstMaster k8s-master-01 --numMasters 3"
     echo "Usage: startVM.sh [options]"
     echo ""
     echo "Options:"
     echo "  -n, --nameVM                   Name of the VM"
-    echo "  -r, --role                     Role (e.g., worker, master)"
-    echo "  -p, --prefixButaneIgnitionName Prefix for ignition file"
+    echo "  -r, --role                     Role (worker or master)"
     echo "  -i, --IPAddressVM               VM IP Address"
     echo "  -m, --maskVM                   Subnet Mask"
     echo "  -g, --gatewayVM                Gateway IP"
     echo "  -d, --dnsVM                    DNS Server"
-    echo "  -P, --httpProtocolIgnition     Protocol used by Ignition Server configuration." 
-    echo "  -a, --IPAddressHttpIgnition    HTTP Server IP"
-    echo "  -t, --httpPortIgnition         HTTP Port (Default: 80)"
-    echo "   --httpProtocolCA           Protocol used by CA Server configuration." 
-    echo "   --httpPortCA             Port used by CA Server configuration." 
-    echo "  -o, --OVAFILE                  Path to the OVA file (Default: fedora-coreos-43.20260316.3.1-virtualbox.x86_64.ova)"
-    echo "  -k, --k8s_version              K8s version to install."
-    echo "  -E, --endpointIP               Endpoint IP (LB)"
-    echo "  -H, --endpointHost             Endpoint Hostname (HAProxy)"
-    echo "  -p, --endpointPort             Endpoint Port (HAProxy)"
-    echo "  -M, --prefixMaster             Prefix Master (Domain)"
+    echo "  --kubeadmToken                 Kubeadm bootstrap token (Dynamic from makefile)"
+    echo "  --certificateKey               Kubeadm certificate key (Dynamic from makefile)"
+    echo "  --firstMaster                  Hostname of the first master node"
+    echo "  --numMasters                   Total number of master nodes"
     echo "  -h, --help                     Show this help"
+    echo ""
+    echo "Note: Global configuration (OVA path, ports, endpoints, etc.) is automatically loaded from CONFIG.mk"
     echo ""
 }
 
@@ -49,74 +83,22 @@ function pause(){
 
 function CreateNode(){
  
+    # 1. Definición de variables mapeadas desde globals de getopt y load_config
+    nameVM=$NAME_VM
+    role=$ROLE
+    prefixButaneIgnitionName=${PREFIX_IGNITION:-"preconfig"}
+    IPAddressVM=$IP_VM
+    maskVM=$MASK_VM
+    gatewayVM=$GW_VM
+    dnsVM=$DNS_VM
+    httpProtocolIgnition=$HTTP_PROTO_IGNITION
+    IPAddressHttpIgnition=$HTTP_IP_IGNITION
+    httpPortIgnition=$HTTP_PORT_IGNITION
+    httpProtocolCA=$HTTP_PROTO_CA
+    httpPortCA=$HTTP_PORT_CA
 
-    # 1. Definición de variables
-    nameVM=$1
-    #echo "nameVM: $nameVM"
-    role=$2
-    #echo "role: $role"
-    prefixButaneIgnitionName=$3
-    #echo "prefixButaneIgnitionName: $prefixButaneIgnitionName"
-    IPAddressVM=$4
-    #echo "IPAddressVM: $IPAddressVM"
-    maskVM=$5
-    #echo "maskVM: $maskVM"
-    gatewayVM=$6
-    #echo "gatewayVM: $gatewayVM"
-    dnsVM=$7
-
-    #"$HTTP_PROTO" "$IP_HTTP" "$HTTP_PORT" "$OVA_FILE" "$K8S_VERSION" "$ENDPOINT_IP" "$PREFIX_MASTER" "$AUTHORIZATION_USER" "$AUTHORIZATION_PASSWORD" ;;
-    #echo "dnsVM: $dnsVM"
-    httpProtocolIgnition=$8
-    #echo "httpProtocolIgnition: $httpProtocolIgnition"
-
-    IPAddressHttpIgnition=$9
-    #echo "IPAddressHttpIgnition: $IPAddressHttpIgnition"
-    
-    httpPortIgnition=${10}
-    #echo "httpPortIgnition: $httpPortIgnition"
-    
-    httpProtocolCA=${11}
-    #echo "httpProtocolCA: $httpProtocolCA"
-    
-    httpPortCA=${12}
-    #echo "httpPortCA: $httpPortCA"
-
-    OVA_FILE=${13}
-    #echo "OVA_FILE: $OVA_FILE"
-    
-    K8S_VERSION=${14}
-    #echo "K8S_VERSION: $K8S_VERSION"
-
-    ENDPOINT_IP=${15}
-    #echo "ENDPOINT_IP: $ENDPOINT_IP"
-
-    ENDPOINT_HOST=${16}
-    #echo "ENDPOINT_HOST: $ENDPOINT_HOST"
-    
-    ENDPOINT_PORT=${17}
-    #echo "ENDPOINT_PORT: $ENDPOINT_PORT"
-
-    PREFIX_MASTER=${18}
-    #echo "PREFIX_MASTER: $PREFIX_MASTER"
-
-    AUTHORIZATION_USER=${19}
-    #echo "AUTHORIZATION_USER: $AUTHORIZATION_USER"
-    
-    AUTHORIZATION_PASSWORD=${20}
-    #echo "AUTHORIZATION_PASSWORD: $AUTHORIZATION_PASSWORD"
-
-    SUBNET_POD=${21}
-    #echo "SUBNET_POD: $SUBNET_POD"
-
-    SUBNET_SERVICE=${22}
-    #echo "SUBNET_SERVICE: $SUBNET_SERVICE"
-    
-    KUBEADM_TOKEN=${23}
-    CERTIFICATE_KEY=${24}
-    FIRST_MASTER_HOSTNAME=${25}
-    CILIUM_VERSION=${26}
-    NUM_MASTERS=${27}
+    AUTHORIZATION_USER=$HTTP_USER_IGNITION
+    AUTHORIZATION_PASSWORD=$HTTP_PASSWORD_IGNITION
 
     # get the home directory of the user running the script
     homeDir=$(getent passwd $USER | cut -d: -f6)
@@ -179,6 +161,7 @@ function CreateNode(){
         else
             echo "VM configurada correctamente (NIC1)"
         fi
+        sleep 2
         if ! VBoxManage modifyvm "$nameVM" --nic1 bridged --bridgeadapter1 eno1 2>> "$ERROR_FILE"; then
             echo "Error crítico: Revisa los logs $ERROR_FILE -> MODIFYING_VM_NIC1"
             exit 1
@@ -192,6 +175,7 @@ function CreateNode(){
         else
             echo "VM configurada correctamente (NIC2)"
         fi
+        sleep 2
 
         
     fi
@@ -200,7 +184,9 @@ function CreateNode(){
     mkdir -p LOGS
     VM_LOG_FILE="$(pwd)/LOGS/${nameVM}_console.log"
     VBoxManage modifyvm "$nameVM" --uart1 0x3F8 4 2>> "$ERROR_FILE"
+    sleep 2
     VBoxManage modifyvm "$nameVM" --uartmode1 file "$VM_LOG_FILE" 2>> "$ERROR_FILE"
+    sleep 2
 
 
     #setting the root paths
@@ -328,11 +314,12 @@ function CreateNode(){
 
     # 3. Setting the ignition config in the VM
     if ! VBoxManage guestproperty set "$nameVM" /Ignition/Config "$IGN_MINIFIED" 2>> "$ERROR_FILE"; then
-        echo "Error crítico: Revisa los logs $ERROR_FILE -> SETTING_IGNITION"
-        exit 2
+        echo "Error crítico: Revisa los logs $ERROR_FILE -> INJECTING_IGNITION_FILE"
+        exit 1
     else
-        echo "Ignition configurado correctamente en la VM"
+        echo "Ignition Inyectado Correctamente"
     fi
+    sleep 2
 
     # 4. Configure storage
     echo "Configuring storage..."
@@ -385,30 +372,13 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     -n|--nameVM)                  NAME_VM="$2"; shift 2 ;;
     -r|--role)                    ROLE="$2"; shift 2 ;;
-    -p|--prefixButaneIgnitionName) PREFIX_IGNITION="$2"; shift 2 ;;
     -i|--IPAddressVM)              IP_VM="$2"; shift 2 ;;
     -m|--maskVM)                  MASK_VM="$2"; shift 2 ;;
     -g|--gatewayVM)               GW_VM="$2"; shift 2 ;;
     -d|--dnsVM)                   DNS_VM="$2"; shift 2 ;;
-    -P|--httpProtocolIgnition)    HTTP_PROTO="$2"; shift 2 ;;
-    -a|--IPAddressHttpIgnition)           IP_HTTP="$2"; shift 2 ;;
-    -t|--httpPortIgnition)        HTTP_PORT="$2"; shift 2 ;;
-    --HTTP_PROTO_CA)           HTTP_PROTO_CA="$2"; shift 2 ;;
-    --HTTP_PORT_CA)           HTTP_PORT_CA="$2"; shift 2 ;;
-    -o|--OVAFILE)                OVA_FILE="$2"; shift 2 ;;
-    -k|--k8s_version)             K8S_VERSION="$2"; shift 2 ;;
-    -E|--endpointIP)              ENDPOINT_IP="$2"; shift 2 ;;
-    -H|--endpointHost)            ENDPOINT_HOST="$2"; shift 2 ;;
-    -p|--endpointPort)            ENDPOINT_PORT="$2"; shift 2 ;;
-    -M|--prefixMaster)            PREFIX_MASTER="$2"; shift 2 ;;
-    -u|--authorizationUser)       AUTHORIZATION_USER="$2"; shift 2 ;;
-    -A|--authorizationPassword)   AUTHORIZATION_PASSWORD="$2"; shift 2 ;;
-    -s|--SUBNET_POD)              SUBNET_POD="$2"; shift 2 ;;
-    -S|--SUBNET_SERVICE)          SUBNET_SERVICE="$2"; shift 2 ;;
     --kubeadmToken)               KUBEADM_TOKEN="$2"; shift 2 ;;
     --certificateKey)             CERTIFICATE_KEY="$2"; shift 2 ;;
     --firstMaster)                FIRST_MASTER_HOSTNAME="$2"; shift 2 ;;
-    --ciliumVersion)              CILIUM_VERSION="$2"; shift 2 ;;
     --numMasters)                 NUM_MASTERS="$2"; shift 2 ;;
     -h|--help)                    usage; ayuda; exit 0;;
     *) echo "Unknown option: $1"; usage; exit 1 ;;       
@@ -417,6 +387,6 @@ done
 
 case $ROLE in
     "") echo "Error: --nameVM is required"; usage; exit 1 ;;
-    "master"|"worker")  CreateNode "$NAME_VM" "$ROLE" "$PREFIX_IGNITION" "$IP_VM" "$MASK_VM" "$GW_VM" "$DNS_VM" "$HTTP_PROTO" "$IP_HTTP" "$HTTP_PORT" "$HTTP_PROTO_CA" "$HTTP_PORT_CA" "$OVA_FILE" "$K8S_VERSION" "$ENDPOINT_IP" "$ENDPOINT_HOST" "$ENDPOINT_PORT" "$PREFIX_MASTER" "$AUTHORIZATION_USER" "$AUTHORIZATION_PASSWORD" "$SUBNET_POD" "$SUBNET_SERVICE" "$KUBEADM_TOKEN" "$CERTIFICATE_KEY" "$FIRST_MASTER_HOSTNAME" "$CILIUM_VERSION" "$NUM_MASTERS";;
+    "master"|"worker")  CreateNode ;;
     *) echo "Unknown role: $role"; usage; exit 1 ;;
 esac

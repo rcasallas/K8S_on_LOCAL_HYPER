@@ -447,6 +447,24 @@ systemd:
         [Install]
         WantedBy=multi-user.target
 
+    # 1.5 Servicio para aislar la red bridged de la red host-only
+    - name: k8s-network-isolation.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Isolate Bridged and Host-Only networks (iptables FORWARD DROP)
+        Wants=network-online.target
+        After=network-online.target
+
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/usr/sbin/iptables -I FORWARD -i enp0s3 -o enp0s8 -j DROP
+        ExecStart=/usr/sbin/iptables -I FORWARD -i enp0s8 -o enp0s3 -j DROP
+
+        [Install]
+        WantedBy=multi-user.target
+
     # 2. Servicio Oneshot para Instalar containerd y runc
     - name: install-containerd-runc.service
       enabled: true

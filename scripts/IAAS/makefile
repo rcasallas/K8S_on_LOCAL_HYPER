@@ -56,100 +56,51 @@ deleteLB:
 	./deleteLB.sh "$$HOSTNAME"; \
 	done
 deleteVM:
-
-
 	@for MASTER in $(DATA_MASTER); do \
 		HOSTNAME=$$(echo $$MASTER | cut -d: -f1); \
-		#echo "hostname - $$HOSTNAME"; \
 		IPADDRESS=$$(echo $$MASTER | cut -d: -f2); \
-		#echo "$$IPADDRESS - IPAddressVM"; \
-		#echo "$(MASK_MASTER) - mask"; \
-		#echo "$(GATEWAY_MASTER) - gateway"; \
 		DNS_TMP="$(DNS_MASTER)"; \
-		#echo "$${DNS_TMP// /;} - dns"; \
-		#echo "$(HTTP_PROTO_IGNITION) - httpProtocolIgnition"; \
-		#echo "$(HTTP_IP_IGNITION) - IPAddressHttpIgnition"; \
-		#echo "$(HTTP_PORT_IGNITION) - httpPortIgnition"; \
-		#echo "$(OVA_FILE) - OVAFILE"; \
-		#echo "$(K8S_VERSION) - k8s_version"; \
 		./deleteVM.sh "$$HOSTNAME"; \
 	done
-
-
 	@for WORKER in $(DATA_WORKER); do \
 		HOSTNAME=$$(echo $$WORKER | cut -d: -f1); \
-		#echo "hostname - $$HOSTNAME"; \
 		IPADDRESS=$$(echo $$WORKER | cut -d: -f2); \
-		#echo "$$IPADDRESS - IPAddressVM"; \
-		#echo "$(MASK_WORKER) - mask"; \
-		#echo "$(GATEWAY_WORKER) - gateway"; \
 		DNS_TMP="$(DNS_WORKER)"; \
-		#echo "$${DNS_TMP// /;} - dns"; \
-		#echo "$(HTTP_PROTO_IGNITION) - httpProtocolIgnition"; \
-		#echo "$(HTTP_IP_IGNITION) - IPAddressHttpIgnition"; \
-		#echo "$(HTTP_PORT_IGNITION) - httpPortIgnition"; \
-		#echo "$(OVA_FILE) - OVAFILE"; \
-		#echo "$(K8S_VERSION) - k8s_version"; \
 		./deleteVM.sh "$$HOSTNAME"; \
 	done
 startVM:
-
 	@echo "DATA_MASTER: $(DATA_MASTER)"
 	@echo "DATA_WORKER: $(DATA_WORKER)"
-
 	@KUBEADM_TOKEN_DYN=$$(openssl rand -hex 3).$$(openssl rand -hex 8); \
 	CERTIFICATE_KEY_DYN=$$(openssl rand -hex 32); \
 	echo "Generated Kubeadm Token: $$KUBEADM_TOKEN_DYN"; \
 	echo "Generated Certificate Key: $$CERTIFICATE_KEY_DYN"; \
 	for MASTER in $(DATA_MASTER); do \
 		HOSTNAME=$$(echo $$MASTER | cut -d: -f1); \
-		#echo "hostname - $$HOSTNAME"; \
 		IPADDRESS=$$(echo $$MASTER | cut -d: -f2); \
-		#echo "$$IPADDRESS - IPAddressVM"; \
-		#echo "$(MASK_MASTER) - mask"; \
-		#echo "$(GATEWAY_MASTER) - gateway"; \
 		DNS_TMP="$(DNS_MASTER)"; \
-		#echo "$${DNS_TMP// /;} - dns"; \
-		#echo "$(HTTP_PROTO_IGNITION) - httpProtocolIgnition"; \
-		#echo "$(HTTP_IP_IGNITION) - IPAddressHttpIgnition"; \
-		#echo "$(HTTP_PORT_IGNITION) - httpPortIgnition"; \
-		#echo "$(HTTP_PROTO_CA) - httpProtocolCA"; \
-		#echo "$(HTTP_PORT_CA) - httpPortCA"; \
-		#echo "$(OVA_FILE) - OVAFILE"; \
 		FIRST_MASTER=$$(echo $(HOSTNAME_MASTER) | tr -d '"' | awk '{print $$1}'); \
 		NUM_MASTERS=$$(echo $(DATA_MASTER) | wc -w); \
-		./startVM.sh --nameVM "$$HOSTNAME" --role master --prefixButaneIgnitionName preconfig --IPAddressVM "$$IPADDRESS" --maskVM "$(MASK_MASTER)" --gatewayVM "$(GATEWAY_MASTER)" --dnsVM "$${DNS_TMP// /;}"  --httpProtocolIgnition "$(HTTP_PROTO_IGNITION)" --IPAddressHttpIgnition "$(HTTP_IP_IGNITION)" --httpPortIgnition "$(HTTP_PORT_IGNITION)" --HTTP_PROTO_CA "$(HTTP_PROTO_CA)" --HTTP_PORT_CA "$(HTTP_PORT_CA)" --OVAFILE "$(OVA_FILE)" --k8s_version "$(K8S_VERSION)" --endpointIP "$(ENDPOINT_IP)" --endpointHost "$(ENDPOINT_HOST)" --endpointPort "$(ENDPOINT_PORT)" --prefixMaster "$(PREFIX_MASTER)" --authorizationUser "$(HTTP_USER_IGNITION)" --authorizationPassword "$(HTTP_PASSWORD_IGNITION)" --kubeadmToken "$$KUBEADM_TOKEN_DYN" --certificateKey "$$CERTIFICATE_KEY_DYN" --firstMaster "$$FIRST_MASTER" --ciliumVersion "$(CILIUM_VERSION)" --numMasters "$$NUM_MASTERS" --SUBNET_POD "$(SUBNET_POD)" --SUBNET_SERVICE "$(SUBNET_SERVICE)"; \
+		./startVM.sh --nameVM "$$HOSTNAME" --role master --IPAddressVM "$$IPADDRESS" --maskVM "$(MASK_MASTER)" --gatewayVM "$(GATEWAY_MASTER)" --dnsVM "$${DNS_TMP// /;}" --kubeadmToken "$$KUBEADM_TOKEN_DYN" --certificateKey "$$CERTIFICATE_KEY_DYN" --firstMaster "$$FIRST_MASTER" --numMasters "$$NUM_MASTERS" ; \
 	done; \
 	for WORKER in $(DATA_WORKER); do \
 		HOSTNAME=$$(echo $$WORKER | cut -d: -f1); \
-		#echo "hostname - $$HOSTNAME"; \
 		IPADDRESS=$$(echo $$WORKER | cut -d: -f2); \
-		#echo "$$IPADDRESS - IPAddressVM"; \
-		#echo "$(MASK_WORKER) - mask"; \
-		#echo "$(GATEWAY_WORKER) - gateway"; \
 		DNS_TMP="$(DNS_WORKER)"; \
-		#echo "$${DNS_TMP// /;} - dns"; \
-		#echo "$(HTTP_PROTO_IGNITION) - httpProtocolIgnition"; \
-		#echo "$(HTTP_IP_IGNITION) - IPAddressHttpIgnition"; \
-		#echo "$(HTTP_PORT_IGNITION) - httpPortIgnition"; \
-		#echo "$(HTTP_PROTO_CA) - httpProtocolCA"; \
-		#echo "$(HTTP_PORT_CA) - httpPortCA"; \
-		#echo "$(OVA_FILE) - OVAFILE"; \
 		FIRST_MASTER=$$(echo $(HOSTNAME_MASTER) | tr -d '"' | awk '{print $$1}'); \
 		NUM_MASTERS=$$(echo $(DATA_MASTER) | wc -w); \
-		./startVM.sh --nameVM "$$HOSTNAME" --role worker --prefixButaneIgnitionName preconfig --IPAddressVM "$$IPADDRESS" --maskVM "$(MASK_WORKER)" --gatewayVM "$(GATEWAY_WORKER)" --dnsVM "$${DNS_TMP// /;}"  --httpProtocolIgnition "$(HTTP_PROTO_IGNITION)" --IPAddressHttpIgnition "$(HTTP_IP_IGNITION)" --httpPortIgnition "$(HTTP_PORT_IGNITION)" --HTTP_PROTO_CA "$(HTTP_PROTO_CA)" --HTTP_PORT_CA "$(HTTP_PORT_CA)" --OVAFILE "$(OVA_FILE)" --k8s_version "$(K8S_VERSION)" --endpointIP "$(ENDPOINT_IP)" --endpointHost "$(ENDPOINT_HOST)" --endpointPort "$(ENDPOINT_PORT)" --prefixMaster "$(PREFIX_MASTER)" --authorizationUser "$(HTTP_USER_IGNITION)" --authorizationPassword "$(HTTP_PASSWORD_IGNITION)" --kubeadmToken "$$KUBEADM_TOKEN_DYN" --certificateKey "$$CERTIFICATE_KEY_DYN" --firstMaster "$$FIRST_MASTER" --ciliumVersion "$(CILIUM_VERSION)" --numMasters "$$NUM_MASTERS" --SUBNET_POD "$(SUBNET_POD)" --SUBNET_SERVICE "$(SUBNET_SERVICE)"; \
+		./startVM.sh --nameVM "$$HOSTNAME" --role worker --IPAddressVM "$$IPADDRESS" --maskVM "$(MASK_WORKER)" --gatewayVM "$(GATEWAY_WORKER)" --dnsVM "$${DNS_TMP// /;}" --kubeadmToken "$$KUBEADM_TOKEN_DYN" --certificateKey "$$CERTIFICATE_KEY_DYN" --firstMaster "$$FIRST_MASTER" --numMasters "$$NUM_MASTERS" ; \
 	done; \
-	FIRST_MASTER=$$(echo $(HOSTNAME_MASTER) | tr -d '"' | awk '{print $$1}'); \
+	FIRST_MASTER_IP=$$(echo $(MASTER_IP) | tr -d '"' | awk '{print $$1}'); \
 	for WORKER in $(DATA_WORKER); do \
 		HOSTNAME=$$(echo $$WORKER | cut -d: -f1); \
 		echo "Waiting for worker $$HOSTNAME to join the cluster to label it..."; \
-		while ! ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ../../keys/myKeys -l devopsadmin $$FIRST_MASTER "kubectl get node $$HOSTNAME > /dev/null 2>&1"; do \
+		while ! ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ../../keys/myKeys -l devopsadmin $$FIRST_MASTER_IP "kubectl get node $$HOSTNAME > /dev/null 2>&1"; do \
 			sleep 10; \
 		done; \
 		echo "Labeling $$HOSTNAME as worker..."; \
-		ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ../../keys/myKeys -l devopsadmin $$FIRST_MASTER "kubectl label node $$HOSTNAME node-role.kubernetes.io/worker=worker --overwrite"; \
+		ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ../../keys/myKeys -l devopsadmin $$FIRST_MASTER_IP "kubectl label node $$HOSTNAME node-role.kubernetes.io/worker=worker --overwrite"; \
 	done
-	
 startLB:
 	@hostname_lb_clean=$$(echo $(HOSTNAME_LB) | tr -d '"') ; \
 	ip_lb_clean=$$(echo $(LB_IP) | tr -d '"') ; \
@@ -164,26 +115,12 @@ startLB:
 	./startLB.sh \
 	--nameVM "$${hosts[$$i]}" \
 	--role "primary" \
-	--prefixButaneIgnitionName "preconfig" \
 	--IPAddressVM "$${ips[$$i]}" \
 	--maskVM "$(MASK_LB)" \
 	--gatewayVM "$(GATEWAY_LB)" \
 	--dnsVM "$(DNS_LB)" \
 	--dnsRelay "$$dns_relay" \
-	--prefixLB "$(PREFIX_LB)" \
-	--keepalivedPriority "$${prios[$$i]}" \
-	--keepalivedNic "$(KEEPALIVED_NIC)" \
-	--httpProtocolIgnition "$(HTTP_PROTO_IGNITION)" \
-	--IPAddressHttpIgnition "$(HTTP_IP_IGNITION)" \
-	--httpPortIgnition "$(HTTP_PORT_IGNITION)" \
-	--OVAFILE "$(OVA_FILE)" \
-	--vip_lb "$(LB_VIP_IP)" \
-	--keepalivedPass "$(KEEPALIVED_PASS)" \
-	--configK8S "CONFIG.mk" \
-	--authorizationUser "$(HTTP_USER_IGNITION)" \
-	--authorizationPassword "$(HTTP_PASSWORD_IGNITION)" \
-	--HTTP_PROTO_CA "$(HTTP_PROTO_CA)" \
-	--HTTP_PORT_CA "$(HTTP_PORT_CA)" ; \
+	--keepalivedPriority "$${prios[$$i]}" ; \
 	done
 listNICS:
 	vboxmanage list hostonlyifs
